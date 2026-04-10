@@ -25,6 +25,7 @@ dist-ssr
 
 # Security
 service-account.json
+service-key.json
 .env
 .env.local
 node_modules

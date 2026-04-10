@@ -3,7 +3,19 @@ import cors from 'cors';
 import multer from 'multer';
 import dotenv from 'dotenv';
 import { VertexAI, HarmCategory, HarmBlockThreshold } from '@google-cloud/vertexai';
-import { DocumentProcessorServiceClient } from '@google-cloud/documentai';
+// Lazy-load Document AI only when needed
+let documentClient = null;
+async function getDocumentClient() {
+  if (!documentClient) {
+    try {
+      const { DocumentProcessorServiceClient } = await import('@google-cloud/documentai');
+      documentClient = new DocumentProcessorServiceClient();
+    } catch(e) {
+      console.warn('Document AI not available:', e.message);
+    }
+  }
+  return documentClient;
+}
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import Pizzip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
@@ -29,9 +41,6 @@ const textModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const vertexAI = new VertexAI({ project, location });
 const DEFAULT_TOOLS = [{ googleSearch: {} }];
 
-
-// Initialize Document AI client
-const documentClient = new DocumentProcessorServiceClient();
 
 async function generateAIResponse(history, systemInstruction = '', useGrounding = true) {
   const generativeModelOptions = {
@@ -114,24 +123,26 @@ Example format:
 // Fallback: Use known field positions for common forms
 function getDefaultFields(formType) {
   if (formType === 'cssa') {
+    // A4 page: 595.32 x 841.92 points. y=0 is bottom, y=842 is top.
+    // Positions calibrated to the actual CSSA Registration Form layout
     return [
-      { label: "name", "x": 120, "y": 680, "width": 180, "height": 15, "type": "text" },
-      { label: "hkid", "x": 120, "y": 660, "width": 150, "height": 15, "type": "text" },
-      { label: "address", "x": 120, "y": 640, "width": 300, "height": 15, "type": "text" },
-      { label: "phone", "x": 120, "y": 620, "width": 150, "height": 15, "type": "text" },
-      { label: "income", "x": 120, "y": 600, "width": 150, "height": 15, "type": "text" },
-      { label: "employment", "x": 120, "y": 580, "width": 180, "height": 15, "type": "text" },
-      { label: "family_size", "x": 120, "y": 560, "width": 80, "height": 15, "type": "text" },
-      { label: "date", "x": 120, "y": 540, "width": 120, "height": 15, "type": "text" }
+      { label: "name",       x: 255, y: 718, type: "text" },  // "Name of applicant:" row
+      { label: "hkid",       x: 255, y: 700, type: "text" },  // "Identity document no.:" row
+      { label: "address",    x: 310, y: 670, type: "text" },  // "Residential address:" row
+      { label: "employment", x: 230, y: 685, type: "text" },  // "Occupation:" row
+      { label: "income",     x: 380, y: 685, type: "text" },  // "Monthly income:" on same row
+      { label: "phone",      x: 255, y: 622, type: "text" },  // "Residential phone no.:" row
+      { label: "family_size",x: 170, y: 575, type: "text" },  // Significant changes text area
+      { label: "date",       x: 350, y: 700, type: "text" },  // "Date of birth:" on ID row
     ];
   } else if (formType === 'marriage_search') {
     return [
-      { label: "name", "x": 120, "y": 680, "width": 180, "height": 15, "type": "text" },
-      { label: "hkid", "x": 120, "y": 660, "width": 150, "height": 15, "type": "text" },
-      { label: "spouse_name", "x": 120, "y": 640, "width": 180, "height": 15, "type": "text" },
-      { label: "spouse_hkid", "x": 120, "y": 620, "width": 150, "height": 15, "type": "text" },
-      { label: "marriage_date", "x": 120, "y": 600, "width": 120, "height": 15, "type": "text" },
-      { label: "marriage_place", "x": 120, "y": 580, "width": 180, "height": 15, "type": "text" }
+      { label: "name",          x: 200, y: 620, type: "text" },
+      { label: "hkid",          x: 200, y: 595, type: "text" },
+      { label: "spouse_name",   x: 200, y: 565, type: "text" },
+      { label: "spouse_hkid",   x: 200, y: 540, type: "text" },
+      { label: "marriage_date", x: 200, y: 510, type: "text" },
+      { label: "marriage_place",x: 200, y: 485, type: "text" },
     ];
   }
   return [];
@@ -167,7 +178,10 @@ async function extractFormFieldsWithDocumentAI(pdfPath, formType) {
       },
     };
     
-    const [result] = await documentClient.processDocument(request);
+    const client = await getDocumentClient();
+    if (!client) return getDefaultFields(formType);
+    
+    const [result] = await client.processDocument(request);
     const { document } = result;
     
     // Extract form fields
@@ -205,64 +219,175 @@ async function extractFormFieldsWithDocumentAI(pdfPath, formType) {
 
 app.post('/api/chat', async (req, res) => {
   try {
-    const { history } = req.body;
+    const { history, lang } = req.body;
     
-    const systemPrompt = `You are Zoya, a high-agency, specialized AI Advocate for domestic violence survivors in Hong Kong. 
-The name Zoya means "Life" (Affirming Survival). Your mission is to help survivors safely exit abusive environments through legal protection.
+    const langInstruction = lang === 'zh' 
+      ? '\n\nIMPORTANT: Respond in Traditional Chinese (繁體中文). Use Cantonese-friendly phrasing. Keep the same format with bullet points and line breaks.'
+      : '';
+    
+    const systemPrompt = `You are Zoya, a high-agency AI Advocate for domestic violence survivors in Hong Kong.
+You are NOT a chatbot. You are an AUTONOMOUS AGENT. The survivor tells her story ONCE. You fight the system for her.
 
-### HK KNOWLEDGE BASE:
-1. **Marriage Certificate**: Replacement costs HK$280 + HK$140 search fee. Office: Admiralty. Processing: 7 working days. Application: MR10 form (we have this in Autofill) or GovHK Online.
-2. **CSSA (Financial)**: Registration form needed (we have this in Autofill). Alternative income proof: Tax returns from IRD. Link: https://www.swd.gov.hk/storage/asset/section/41/en/CSSA_Registration_Form(e)_202302.pdf
-3. **Legal Aid**: Financial limit HK$452,320. Director can waive limits for Bill of Rights cases. Tel: 2537 7677.
-4. **Hotlines**: 
-   - Women's Centres (Injunction help): 2586 6255
-   - Jockey Club Lai Kok Centre: 2386 6256
-   - Free Legal Helpline (One-off 45 min): 8200 8002
-5. **Non-Molestation Orders**: Solicitor must draft affidavit. ex parte procedures are complex. 
-6. **Matrimonial Law enquiries**: Client must provide Full Name, Spouse Name, HKID alphabet + first 4 digits.
+## YOUR OPERATING PROTOCOL — THE TIMELINE:
 
-### CSSA FORM FIELDS (Ask for these specifically):
-- Full Name
-- HKID Number (format: A123456(7))
-- Residential Address
-- Phone Number
-- Monthly Income
-- Employment Status
-- Number of Family Members
-- Date
+### HOUR 0: FIRST CONTACT
+When someone first messages you:
+- Ask ONLY 3 things: Are you safe right now? Do you have children? Do you need to leave tonight?
+- From these answers, MAP every service she'll need and the ORDER they must happen in.
+- IMMEDIATELY output a phased plan in your response.
+- Set casePhase to "hour0_intake"
 
-### MARRIAGE SEARCH FORM FIELDS:
-- Full Name
-- HKID Number
-- Spouse's Full Name  
-- Spouse's HKID Number
-- Marriage Date
-- Marriage Place
+### HOUR 1: IMMEDIATE SAFETY
+If she needs shelter NOW:
+- INSTANTLY provide ALL 5 SWD refuge centres + Caritas:
+  • Harmony House 24hr: 2522 0434 (Wan Chai, women + children)
+  • SWD Emergency Placement: 2343 2255 (24hr, all 5 centres, 268 beds total)
+  • Po Leung Kuk: 2381 0010 (temporary refuge)
+  • Caritas Family Crisis: 18288 (24hr crisis)
+  • Refuge Centre Tuen Mun: 2655 7700
+- Match based on: her location, children, language needs
+- Set casePhase to "hour1_safety"
 
-### MISSION:
-- Help them exit.
-- Prioritize DCRVO (Injunctions) and safe housing.
-- Ask for ONE piece of information at a time.
-- ONLY ask for information that matches the form fields listed above.
-- If they mention "CSSA Registration" or "Marriage Search", specifically tell them "I can autofill this official form for you now."
-- Extract facts and map them to the exact field names shown above.
+### HOURS 2-24: EVIDENCE BUILDING
+Once safe, ask: "Do you have WhatsApp chats with him? Can you export them?"
+- Tell her to use the Evidence Extractor (button in the app)
+- Also accept: screenshots, bank statements, social media — tell her to upload via the doc panel
+- The AI will auto-parse everything. She just shares what she has.
+- Set casePhase to "evidence_building"
 
-### OUTPUT:
-You MUST ALWAYS end your response with exactly one JSON block using these delimiters:
-   ###JSON_DATA###
-   {
-     "reply": "Your message with HK specifics",
-     "inputType": "text | choice | file",
-     "inputLabel": "Short label",
-     "options": [...],
-     "newDocRequirement": "Doc Name or null",
-     "formType": "cssa | marriage_search | null" (Identified autofillable form),
-     "extractedFacts": { 
-       // Map to EXACT field names: "name", "hkid", "address", "phone", "income", "employment", "family_size", "date"
-       // OR for marriage: "name", "hkid", "spouse_name", "spouse_hkid", "marriage_date", "marriage_place"
-     }
-   }
-   ###JSON_END###`;
+### DAYS 2-7: CASE FILE GROWS
+Every new message she sends about what's happening:
+- Auto-timestamp and categorize by abuse type
+- Connect to previous incidents to show patterns
+- Track escalation — if frequency increases, FAST-TRACK safety steps
+- Translate her plain language into legal terminology
+- Set casePhase to "case_growing"
+
+### DAY 7: LEGAL PATHWAY
+When enough evidence exists:
+- Calculate Legal Aid eligibility (under HK$452,320)
+- Pre-fill Legal Aid application
+- Generate injunction application under DCRVO Cap. 189
+- If urgent: flag for ex parte order (without abuser present)
+- Tell her: "Your case file is ready. One click to export for your solicitor."
+- Set casePhase to "legal_activated"
+- Set formType to trigger relevant forms
+
+### DAYS 7-14: FINANCIAL INDEPENDENCE
+While legal process moves:
+- Pre-fill CSSA application
+- Identify missing documents and alternative channels to get them
+- CRITICAL: Sequence financial separation carefully — closing joint accounts can ALERT the abuser
+- Wait for injunction before alerting actions
+- Set casePhase to "financial_separation"
+
+### DAYS 14-30: HOUSING PIPELINE
+Before refuge stay expires:
+- Confirm compassionate rehousing prerequisites (divorce petition, SWD referral, DV evidence)
+- Identify transitional housing
+- She never has to discover compassionate rehousing exists — YOU trigger it
+- Set casePhase to "housing_pipeline"
+
+### DAYS 30-90: RECOVERY
+- School transfer paperwork (protective order removes need for abuser's signature)
+- Childcare assistance via SWD
+- Employment support referrals
+- CSSA review preparation
+- Monitor injunction violations — if breached, draft breach report with evidence
+- Set casePhase to "recovery"
+
+## DANGER ESCALATION SCORING:
+Track these signals across messages. If 3+ are present, FAST-TRACK to legal pathway:
+- Frequency of incidents increasing
+- Physical violence mentioned
+- Threats to children
+- Stalking or showing up at workplace
+- Financial control tightening
+- Weapons mentioned
+- "He said he'd kill me/himself"
+Output dangerLevel: "low" | "medium" | "high" | "critical"
+
+## RESOURCE DATABASE:
+### SHELTERS: Harmony House 2522 0434, SWD 2343 2255, Po Leung Kuk 2381 0010, Caritas 18288, Tuen Mun 2655 7700
+### LEGAL: Legal Aid 2537 7677 (limit HK$452,320), Free Legal Helpline 8200 8002, Women's Centre 2586 6255
+### POLICE: 999 (emergency), nearest station for DV case number
+### FINANCIAL: CSSA (we autofill), Marriage cert replacement HK$280+$140 at Admiralty
+
+## FORM FIELDS (collect ONE at a time, extract from conversation first):
+CSSA: name, hkid, dob, sex, marital_status, address, phone, income, employment, family_size, accommodation, savings, cssa_reason, maintenance
+Marriage Search: name, hkid, spouse_name, spouse_hkid, marriage_date, marriage_place
+
+## PROACTIVE DATA COLLECTION:
+After addressing the immediate crisis, proactively ask for missing profile data ONE field at a time.
+Prioritize in this order:
+1. Name and HKID (needed for everything)
+2. Address and phone (needed for shelter + forms)
+3. Children details (affects custody + school + housing)
+4. Spouse name and HKID (needed for injunction + marriage search)
+5. Financial details (needed for CSSA + Legal Aid)
+6. Marriage details (needed for divorce + marriage cert)
+
+Frame questions naturally:
+- "To prepare your CSSA application, I need your HKID number. What is it?"
+- "How many people are in your family including children?"
+- "What is your current accommodation situation?"
+- "Do you have any savings or assets?"
+Don't ask for data the user already provided earlier in the conversation.
+
+## PHOTO EVIDENCE:
+When the case involves physical abuse or property damage, proactively ask:
+- "Do you have photos of any injuries? You can upload them securely — they'll be stored in a hidden gallery only Zoya can access."
+- "Screenshots of threatening messages can be uploaded too — just drag them into the chat."
+Frame it as easy: "Just share what you already have. Zoya does the rest."
+
+## RESPONSE RULES:
+- MAXIMUM 4 short lines of text per response. No exceptions.
+- Use line breaks (\\n) between every point. NEVER write a wall of text.
+- Format: one short empathy line → action items as bullet points → one question
+- Each bullet point on its own line with "• " prefix
+- Phone numbers get their own line
+- NEVER write more than 2 sentences in a row without a line break
+- Keep each line under 80 characters
+- NO paragraphs. Only short punchy lines.
+
+Example good response:
+"I hear you, Theia. Here's what we do right now:\\n\\n• Call Harmony House: 2522 0434 (24hr, Wan Chai)\\n• SWD Emergency Placement: 2343 2255\\n• Caritas Crisis Line: 18288\\n\\nI'm mapping your full exit plan. Are you safe where you are right now?"
+
+## INCLUDE LIVE LINKS when relevant. Use full URLs:
+- Legal Aid: https://www.lad.gov.hk
+- CSSA Info: https://www.swd.gov.hk/en/index/site_pubsvc/page_socsecu/sub_socialsecurity/
+- SWD DV Services: https://www.swd.gov.hk/en/index/site_pubsvc/page_family/sub_listofserv/id_violencecase/
+- Harmony House: https://www.harmonyhousehk.org
+- Legal Aid Application: https://www.lad.gov.hk/eng/documents/pdfform/Form3.pdf
+- GovHK Marriage Records: https://www.gov.hk/en/residents/immigration/bdmreg/marriage/marriagerecordsearch.htm
+- Housing Authority: https://www.housingauthority.gov.hk
+- Police Online Report: https://www.police.gov.hk/ppp_en/contact_us.html
+- Duty Lawyer Service: https://www.dutylawyer.org.hk
+
+## OUTPUT FORMAT (MUST end every response with this):
+###JSON_DATA###
+{
+  "reply": "Your actionable message",
+  "inputType": "text | choice",
+  "inputLabel": "Short label",
+  "options": [],
+  "newDocRequirement": null,
+  "formType": "cssa | marriage_search | null",
+  "extractedFacts": {
+    "name": null, "safety": "safe|unsafe|at_risk",
+    "financial": null, "legal": null, "children": null,
+    "spouse_name": null, "hkid": null, "address": null, "phone": null,
+    "dob": null, "sex": null, "marital_status": null,
+    "employment": null, "income": null, "savings": null,
+    "accommodation": null, "cssa_reason": null, "marriage_date": null, "marriage_place": null
+  },
+  "casePhase": "hour0_intake|hour1_safety|evidence_building|case_growing|legal_activated|financial_separation|housing_pipeline|recovery",
+  "dangerLevel": "low|medium|high|critical",
+  "autoActions": ["action descriptions the agent is taking autonomously"]
+}
+###JSON_END###
+
+CRITICAL: Extract ALL facts from the ENTIRE conversation history. If she said her name 5 messages ago, it's still her name. ALWAYS include safety status and dangerLevel. ALWAYS include casePhase.` + langInstruction;
 
     const result = await generateAIResponse(history, systemPrompt, true);
     
@@ -270,12 +395,16 @@ You MUST ALWAYS end your response with exactly one JSON block using these delimi
     if (jsonMatch) {
       try {
         const parsed = JSON.parse(jsonMatch[1]);
+        // Ensure new fields have defaults
+        parsed.casePhase = parsed.casePhase || 'hour0_intake';
+        parsed.dangerLevel = parsed.dangerLevel || 'low';
+        parsed.autoActions = parsed.autoActions || [];
         res.json(parsed);
       } catch (e) {
-        res.json({ reply: result.split('###JSON_DATA###')[0].trim(), inputType: 'text', inputLabel: 'Next Step', options: [], extractedFacts: {} });
+        res.json({ reply: result.split('###JSON_DATA###')[0].trim(), inputType: 'text', inputLabel: 'Next Step', options: [], extractedFacts: {}, casePhase: 'hour0_intake', dangerLevel: 'low', autoActions: [] });
       }
     } else {
-      res.json({ reply: result, inputType: 'text', inputLabel: 'Next Steps', options: [], extractedFacts: {} });
+      res.json({ reply: result, inputType: 'text', inputLabel: 'Next Steps', options: [], extractedFacts: {}, casePhase: 'hour0_intake', dangerLevel: 'low', autoActions: [] });
     }
   } catch (error) {
     console.error('Error in chat:', error);
@@ -298,26 +427,34 @@ app.post('/api/fill-known-form', async (req, res) => {
     // Get field positions for this form type
     const fieldPositions = getDefaultFields(formType);
     
-    // Use AI to map caseFile to form fields
-    const mappingPrompt = `You are a legal document assistant. 
-Case File: ${JSON.stringify(caseFile)}
-Form Type: ${formType}
-
-Map the case file data to these form fields: ${JSON.stringify(fieldPositions.map(f => f.label))}
-
-Return a JSON object mapping field labels to values from the case file.
-Only include fields where you have data.
-
-Example: {"name": "John Doe", "hkid": "A123456(7)"}`;
-    
-    const generativeModel = vertexAI.preview.getGenerativeModel({ 
-      model: textModel, 
-      generationConfig: { responseMimeType: "application/json" } 
-    });
-    const aiMap = await generativeModel.generateContent({ 
-      contents: [{role: 'user', parts:[{text: mappingPrompt}]}]
-    });
-    const mappedData = JSON.parse(aiMap.response.candidates[0].content.parts[0].text);
+    // Direct mapping from caseFile to form fields (no AI needed)
+    const mappedData = {};
+    // Map all known caseFile keys to form field labels
+    const fieldMap = {
+      name: caseFile.name,
+      hkid: caseFile.hkid,
+      address: caseFile.address,
+      phone: caseFile.phone,
+      income: caseFile.income || caseFile.financial,
+      employment: caseFile.employment,
+      family_size: caseFile.children,
+      date: caseFile.dob,
+      spouse_name: caseFile.spouse_name,
+      spouse_hkid: caseFile.spouse_hkid,
+      marriage_date: caseFile.marriage_date,
+      marriage_place: caseFile.marriage_place,
+      sex: caseFile.sex,
+      marital_status: caseFile.marital_status,
+      accommodation: caseFile.accommodation,
+      rent: caseFile.rent,
+      savings: caseFile.savings,
+      cssa_reason: caseFile.cssa_reason,
+      maintenance: caseFile.maintenance,
+      dob: caseFile.dob,
+    };
+    for (const field of fieldPositions) {
+      if (fieldMap[field.label]) mappedData[field.label] = fieldMap[field.label];
+    }
 
     // Load PDF and embed text at correct positions
     const pdfDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
@@ -329,14 +466,17 @@ Example: {"name": "John Doe", "hkid": "A123456(7)"}`;
     for (const field of fieldPositions) {
       const value = mappedData[field.label];
       if (value) {
-        firstPage.drawText(String(value), {
-          x: field.x,
-          y: field.y,
-          size: 10,
-          font: font,
-          color: rgb(0, 0, 0),
-          maxWidth: field.width
-        });
+        try {
+          firstPage.drawText(String(value), {
+            x: field.x,
+            y: field.y,
+            size: 9,
+            font: font,
+            color: rgb(0, 0, 0),
+          });
+        } catch(drawErr) {
+          console.error(`Failed to draw field ${field.label}:`, drawErr.message);
+        }
       }
     }
 
@@ -365,16 +505,20 @@ app.post('/api/preview-known-form', async (req, res) => {
     // Get field positions
     const fieldPositions = getDefaultFields(formType);
     
-    // AI mapping
-    const mappingPrompt = `Map case file: ${JSON.stringify(caseFile)} to these form fields: ${JSON.stringify(fieldPositions.map(f => f.label))}. Return raw JSON with field-label to value mapping.`;
-    const genModel = vertexAI.preview.getGenerativeModel({ 
-      model: textModel, 
-      generationConfig: { responseMimeType: "application/json" } 
-    });
-    const aiResp = await genModel.generateContent({ 
-      contents: [{role: 'user', parts:[{text: mappingPrompt}]}]
-    });
-    const mappedData = JSON.parse(aiResp.response.candidates[0].content.parts[0].text);
+    // Direct mapping from caseFile
+    const mappedData = {};
+    const fieldMap = {
+      name: caseFile.name, hkid: caseFile.hkid, address: caseFile.address,
+      phone: caseFile.phone, income: caseFile.income || caseFile.financial,
+      employment: caseFile.employment, family_size: caseFile.children,
+      date: caseFile.dob, spouse_name: caseFile.spouse_name,
+      spouse_hkid: caseFile.spouse_hkid, marriage_date: caseFile.marriage_date,
+      marriage_place: caseFile.marriage_place, sex: caseFile.sex,
+      marital_status: caseFile.marital_status, dob: caseFile.dob,
+    };
+    for (const field of fieldPositions) {
+      if (fieldMap[field.label]) mappedData[field.label] = fieldMap[field.label];
+    }
 
     // Load PDF and embed text
     const pdfDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
@@ -386,14 +530,17 @@ app.post('/api/preview-known-form', async (req, res) => {
     for (const field of fieldPositions) {
       const value = mappedData[field.label];
       if (value) {
-        firstPage.drawText(String(value), {
-          x: field.x,
-          y: field.y,
-          size: 10,
-          font: font,
-          color: rgb(0, 0, 0),
-          maxWidth: field.width
-        });
+        try {
+          firstPage.drawText(String(value), {
+            x: field.x,
+            y: field.y,
+            size: 9,
+            font: font,
+            color: rgb(0, 0, 0),
+          });
+        } catch(drawErr) {
+          console.error(`Preview draw failed for ${field.label}:`, drawErr.message);
+        }
       }
     }
 
@@ -458,24 +605,55 @@ function extractJson(raw) {
   try {
     return JSON.parse(jsonString);
   } catch (parseError) {
-    // Try to auto-complete incomplete JSON
+    // Truncated JSON repair: find the last complete object in the timeline array
     let fixedJson = jsonString;
-    const openBraces = (jsonString.match(/{/g) || []).length;
-    const closeBraces = (jsonString.match(/}/g) || []).length;
-    const openBrackets = (jsonString.match(/\[/g) || []).length;
-    const closeBrackets = (jsonString.match(/]/g) || []).length;
+    
+    // Remove any trailing incomplete object (cut off mid-property)
+    // Find the last complete "}" that closes a timeline entry
+    const lastCompleteObj = fixedJson.lastIndexOf('}');
+    if (lastCompleteObj > 0) {
+      // Check if there's a trailing comma or incomplete content after the last }
+      const afterLast = fixedJson.substring(lastCompleteObj + 1).trim();
+      if (afterLast && !afterLast.startsWith(']') && !afterLast.startsWith('}')) {
+        // Truncate to the last complete object
+        fixedJson = fixedJson.substring(0, lastCompleteObj + 1);
+      }
+    }
 
-    for (let i = 0; i < openBraces - closeBraces; i++) {
-      fixedJson += '}';
-    }
-    for (let i = 0; i < openBrackets - closeBrackets; i++) {
-      fixedJson += ']';
-    }
+    // Close any unclosed brackets/braces
+    const openBraces = (fixedJson.match(/{/g) || []).length;
+    const closeBraces = (fixedJson.match(/}/g) || []).length;
+    const openBrackets = (fixedJson.match(/\[/g) || []).length;
+    const closeBrackets = (fixedJson.match(/]/g) || []).length;
+
+    // Remove trailing comma before closing
+    fixedJson = fixedJson.replace(/,\s*$/, '');
+
+    for (let i = 0; i < openBrackets - closeBrackets; i++) fixedJson += ']';
+    for (let i = 0; i < openBraces - closeBraces; i++) fixedJson += '}';
 
     try {
       return JSON.parse(fixedJson);
     } catch (fixError) {
-      throw new Error(`Invalid JSON from Vertex AI even after attempting repairs. Raw response:\n${raw}`);
+      // Last resort: try to extract just the timeline array entries that are complete
+      try {
+        const timelineMatch = fixedJson.match(/"timeline"\s*:\s*\[([\s\S]*)/);
+        if (timelineMatch) {
+          let arr = '[' + timelineMatch[1];
+          // Find all complete objects
+          const objects = [];
+          const objRegex = /\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g;
+          let m;
+          while ((m = objRegex.exec(arr)) !== null) {
+            try { objects.push(JSON.parse(m[0])); } catch(e) {}
+          }
+          if (objects.length > 0) {
+            return { timeline: objects, language: 'en' };
+          }
+        }
+      } catch(e) {}
+      
+      throw new Error(`Invalid JSON from Vertex AI even after attempting repairs. Raw response:\n${raw.substring(0, 500)}...`);
     }
   }
 }
@@ -520,23 +698,31 @@ async function requestVertexAI(text) {
     return verbs.flatMap((verb) => endpointPaths.map((path) => `https://aiplatform.googleapis.com/v1/${path}/${modelName}:${verb}`));
   });
 
-  const prompt = `Extract ONLY significant abuse incidents from the conversation. DO NOT extract every day—only days with documented abuse, threats, coercion, controlling behavior, or other harm.
+  const prompt = `You are a forensic domestic violence analyst. Extract ONLY significant abuse incidents from this conversation. DO NOT extract every day — only days with documented abuse, threats, coercion, controlling behavior, or other harm.
 
-For each incident day, provide:
-1. The date (YYYY-MM-DD, or best guess if not explicit)
-2. A brief summary of what happened
-3. Key abuse indicators/keywords
-4. Direct quotes from the conversation (in quotation marks) that evidence the abuse
+For each incident, provide:
+1. The date (YYYY-MM-DD, or best guess)
+2. A detailed summary of what happened
+3. Abuse type classification using EXACTLY these categories (can be multiple):
+   - "physical" (hitting, pushing, restraining, any physical force)
+   - "emotional" (insults, humiliation, gaslighting, isolation)
+   - "financial" (controlling money, preventing work, stealing assets)
+   - "coercive_control" (monitoring, stalking, controlling daily activities, threats to control)
+   - "sexual" (any non-consensual sexual behavior)
+   - "threats" (threats of violence, threats to children, threats of self-harm as manipulation)
+4. Key abuse indicators/keywords
+5. Direct quotes from the conversation (verbatim, in quotation marks)
 
 Return as JSON:
 {
   "timeline": [
     {
       "date": "YYYY-MM-DD",
-      "summary": "What happened",
-      "keywords": ["control", "threat"],
+      "summary": "Detailed description of what happened",
+      "abuse_types": ["physical", "threats"],
+      "keywords": ["control", "threat", "isolation"],
       "quotes": [
-        "Direct quote from the conversation that shows abuse",
+        "Direct quote evidencing abuse",
         "Another relevant quote"
       ]
     }
@@ -544,7 +730,12 @@ Return as JSON:
   "language": "en|zh|yue"
 }
 
-IMPORTANT: Only include days with actual incidents. If a day is mentioned but nothing abusive happened, skip it. Prioritize accuracy over completeness.`;
+CRITICAL RULES:
+- Only include days with actual incidents
+- Be precise with abuse_types — use the exact category names listed above
+- Include ALL relevant quotes as direct evidence
+- If a day has multiple types of abuse, list all of them
+- Prioritize accuracy over completeness`;
 
   let response;
   let lastError;
@@ -564,7 +755,7 @@ IMPORTANT: Only include days with actual incidents. If a day is mentioned but no
           ],
           generationConfig: {
             temperature: 0.0,
-            maxOutputTokens: 4000,
+            maxOutputTokens: 16000,
             topP: 0.95,
           },
         }
@@ -572,7 +763,7 @@ IMPORTANT: Only include days with actual incidents. If a day is mentioned but no
           instances: [{ content: `${prompt}\n\n${text}` }],
           parameters: {
             temperature: 0.0,
-            maxOutputTokens: 4000,
+            maxOutputTokens: 16000,
             topP: 0.95,
           },
         };
@@ -685,4 +876,125 @@ app.get('/api/extract-form-fields', async (req, res) => {
 });
 
 const PORT = 3001;
+
+// Generate a complete case pack for solicitor
+app.post('/api/generate-case-pack', async (req, res) => {
+  try {
+    const { caseFile, docDatabase, documentType } = req.body;
+    
+    let packPrompt;
+    let docTitle;
+    
+    if (documentType === 'Legal Aid Application') {
+      docTitle = 'LEGAL AID APPLICATION';
+      packPrompt = `Generate a pre-filled Legal Aid application for a domestic violence case in Hong Kong.
+
+Case File: ${JSON.stringify(caseFile)}
+
+Include:
+1. Applicant details (name, HKID, address, phone)
+2. Financial means test (income, assets — threshold HK$452,320)
+3. Nature of proceedings: Application for Non-Molestation Order under DCRVO Cap. 189
+4. Grounds for application: domestic violence (summarize from case file)
+5. Urgency assessment
+6. Declaration
+
+Format as a formal Legal Aid Department application.`;
+    } else if (documentType && documentType.includes('Injunction')) {
+      docTitle = 'INJUNCTION APPLICATION — DCRVO CAP. 189';
+      packPrompt = `Generate a draft injunction application (Non-Molestation Order) under the Domestic and Cohabitation Relationships Violence Ordinance (Cap. 189) for the Hong Kong Family Court.
+
+Case File: ${JSON.stringify(caseFile)}
+
+Include:
+1. Court header: Family Court of the High Court of Hong Kong
+2. Applicant and Respondent details
+3. Grounds for application (abuse history from case file)
+4. Orders sought (non-molestation, exclusion if applicable)
+5. Whether ex parte application is appropriate
+6. Supporting affidavit summary
+7. List of exhibits/evidence
+
+Format as a formal court application document.`;
+    } else {
+      docTitle = 'ZOYA CASE PACK — CONFIDENTIAL';
+      packPrompt = `Generate a professional case summary document for a domestic violence solicitor in Hong Kong.
+
+Case File: ${JSON.stringify(caseFile)}
+Documents on file: ${JSON.stringify(docDatabase?.map(d => d.name) || [])}
+
+Create a structured legal brief including:
+1. Client Information Summary
+2. Safety Assessment
+3. Financial Situation
+4. Documents Collected
+5. Recommended Legal Actions (specific to HK law — DCRVO, Legal Aid, etc.)
+6. Immediate Next Steps
+
+Format it professionally as a solicitor would expect.`;
+    }
+
+    const result = await generateAIResponse([{ role: 'user', text: packPrompt }], 
+      'You are a Hong Kong family law legal assistant. Generate professional case documentation.', false);
+    
+    // Generate as PDF
+    const pdfDoc = await PDFDocument.create();
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    
+    const lines = result.split('\n');
+    let page = pdfDoc.addPage([595, 842]); // A4
+    let y = 800;
+    const margin = 50;
+    const maxWidth = 495;
+    
+    // Title
+    page.drawText(docTitle || 'ZOYA CASE PACK — CONFIDENTIAL', { x: margin, y, size: 14, font: boldFont, color: rgb(0.4, 0.2, 0.8) });
+    y -= 20;
+    page.drawText(`Generated: ${new Date().toLocaleString('en-GB')}`, { x: margin, y, size: 8, font, color: rgb(0.5, 0.5, 0.5) });
+    y -= 30;
+    
+    for (const line of lines) {
+      if (y < 60) {
+        page = pdfDoc.addPage([595, 842]);
+        y = 800;
+      }
+      const isHeader = line.startsWith('#') || line.startsWith('**');
+      const cleanLine = line.replace(/[#*]/g, '').trim();
+      if (!cleanLine) { y -= 10; continue; }
+      
+      const fontSize = isHeader ? 11 : 9;
+      const usedFont = isHeader ? boldFont : font;
+      
+      // Simple word wrap
+      const words = cleanLine.split(' ');
+      let currentLine = '';
+      for (const word of words) {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        const width = usedFont.widthOfTextAtSize(testLine, fontSize);
+        if (width > maxWidth && currentLine) {
+          page.drawText(currentLine, { x: margin, y, size: fontSize, font: usedFont, color: rgb(0.1, 0.1, 0.1) });
+          y -= fontSize + 4;
+          if (y < 60) { page = pdfDoc.addPage([595, 842]); y = 800; }
+          currentLine = word;
+        } else {
+          currentLine = testLine;
+        }
+      }
+      if (currentLine) {
+        page.drawText(currentLine, { x: margin, y, size: fontSize, font: usedFont, color: rgb(0.1, 0.1, 0.1) });
+        y -= fontSize + 4;
+      }
+    }
+    
+    const pdfBytes = await pdfDoc.save();
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="Zoya_Case_Pack.pdf"');
+    res.send(Buffer.from(pdfBytes));
+  } catch (error) {
+    console.error('Case pack error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(PORT, () => console.log(`Zoya HK Backend running on port ${PORT}`));

@@ -1,5 +1,5 @@
-const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
-const endpoint = baseUrl ? `${baseUrl}/api/extract-timeline` : '/api/extract-timeline';
+const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+const endpoint = `${baseUrl}/api/extract-timeline`;
 
 export async function extractTimeline(text) {
   const response = await fetch(endpoint, {
