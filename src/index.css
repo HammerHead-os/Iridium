@@ -1,0 +1,194 @@
+/* 
+  ZOYA - Affirming Survival 
+  Theme: "Serene Clarity" (Light Mode Premium)
+*/
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', sans-serif;
+}
+
+:root {
+  --primary: #8b5cf6;
+  --primary-light: #c4b5fd;
+  --secondary: #0d9488;
+  --accent: #f43f5e;
+  --bg-main: #f8fafc;
+  --bg-panel: rgba(255, 255, 255, 0.75);
+  --border: rgba(0, 0, 0, 0.04);
+  --text-main: #1e293b;
+  --text-muted: #64748b;
+  --shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.03);
+  --shadow-glass: 0 8px 32px rgba(31, 38, 135, 0.07);
+}
+
+h1, h2, h3, .font-heading {
+  font-family: 'Outfit', sans-serif;
+}
+
+body {
+  background-color: var(--bg-main);
+  background-image: radial-gradient(at 0% 0%, hsla(253,16%,7%,1) 0, transparent 50%), 
+                    radial-gradient(at 50% 0%, hsla(225,39%,30%,1) 0, transparent 50%), 
+                    radial-gradient(at 100% 0%, hsla(339,49%,30%,1) 0, transparent 50%);
+  /* Wait, user wanted LIGHT MODE. Let's fix the background to be light and serene. */
+  background: radial-gradient(circle at top left, #f1f5f9, #ffffff, #f0f9ff);
+  color: var(--text-main);
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+/* ======== ZEN PLANT DECOY (LIGHT) ======== */
+.zen-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: white;
+  color: #15803d;
+}
+
+.zen-header { text-align: center; margin-bottom: 2rem; }
+.zen-header h1 { font-size: 2.8rem; font-weight: 700; color: #166534; }
+.zen-header p { color: #16a34a; opacity: 0.8; }
+
+.plant-area { position: relative; width: 140px; height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
+.pot { width: 100px; height: 80px; background: #a16207; border-radius: 4px 4px 25px 25px; z-index: 5; box-shadow: inset -5px -5px 15px rgba(0,0,0,0.1); }
+.stem { width: 12px; background: #22c55e; position: absolute; bottom: 60px; transition: height 1s; z-index:1; }
+.leaf { width: 35px; height: 35px; background: #4ade80; position: absolute; opacity: 0; transform: scale(0); transition: all 0.8s; }
+.left-leaf { bottom: 100px; left: 35px; transform-origin: bottom right; }
+.left-leaf.grown { opacity: 1; transform: scale(1) rotate(-35deg); }
+.right-leaf { bottom: 140px; right: 35px; border-radius: 35px 0 35px 0; transform-origin: bottom left; }
+.right-leaf.grown { opacity: 1; transform: scale(1) rotate(35deg); }
+
+.water-btn { 
+  margin-top: 3rem; padding: 0.8rem 2.2rem; border-radius: 50px; 
+  border: 2px solid #22c55e; background: white; color: #166534; 
+  font-weight: 700; cursor: pointer; transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 10px rgba(34, 197, 94, 0.1);
+}
+.water-btn:hover { background: #22c55e; color: white; transform: translateY(-3px); box-shadow: 0 10px 20px rgba(34, 197, 94, 0.2); }
+
+/* ======== ZOYA DASHBOARD (3-COLUMN LIGHT) ======== */
+.dashboard-container {
+  display: grid;
+  grid-template-columns: 340px 1fr 380px;
+  height: 100vh;
+  gap: 0;
+  background: #f8fafc;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg-panel);
+  backdrop-filter: blur(40px);
+  border-right: 1px solid var(--border);
+  transition: all 0.3s ease;
+}
+
+.panel-header {
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.panel-header h2 {
+  font-size: 0.85rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+}
+
+/* LEFT: DOC DATABASE */
+.left-panel { border-left: none; box-shadow: 4px 0 24px rgba(0,0,0,0.01); }
+.task-label { font-size: 0.75rem; font-weight: 800; color: #6366f1; text-transform: uppercase; margin-bottom: 0.8rem; display: block; opacity: 0.8; }
+
+.doc-list { padding: 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1rem; }
+.doc-item {
+  background: white;
+  padding: 1.2rem;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.doc-item:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.04); }
+.doc-item.done { border-color: #10b98133; background: #f0fdf4; }
+
+.doc-name { font-size: 0.9rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.8rem; }
+.mini-upload-btn-wrapper { position: relative; width: 100%; }
+.mini-upload-btn {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  width: 100%; padding: 0.6rem; border-radius: 10px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: 0.2s;
+}
+.mini-upload-btn:hover { background: #e2e8f0; color: #1e293b; }
+.mini-upload-btn-wrapper input { position: absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+.check-icon { color: #10b981; font-size: 0.75rem; font-weight: 700; }
+
+/* CENTER: CHAT */
+.chat-panel { 
+  background: linear-gradient(135deg, rgba(255,255,255,0.4), rgba(240,249,255,0.4));
+  border-right: 1px solid var(--border);
+}
+
+.chat-messages { flex: 1; padding: 2.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.8rem; }
+
+.bubble { max-width: 80%; padding: 1.2rem 1.6rem; border-radius: 24px; line-height: 1.6; font-size: 1rem; animation: slideUp 0.4s cubic-bezier(0, 1, 0, 1); }
+.bubble.agent { align-self: flex-start; background: white; color: var(--text-main); border-bottom-left-radius: 4px; box-shadow: var(--shadow-soft); border: 1px solid var(--border); }
+.bubble.user { align-self: flex-end; background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: white; border-bottom-right-radius: 4px; box-shadow: 0 10px 25px rgba(139, 92, 246, 0.2); }
+
+/* INTAKE BUBBLE */
+.intake-bubble { border-left: 4px solid var(--primary) !important; background: #faf5ff !important; }
+
+.option-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-top: 0.5rem; }
+.pill-btn {
+  background: white; border: 1px solid #ddd6fe; color: #6d28d9; padding: 0.6rem 1rem; border-radius: 12px;
+  cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: all 0.2s; text-align: left;
+}
+.pill-btn:hover { background: #f5f3ff; transform: scale(1.02); }
+
+.dedicated-field { display: flex; gap: 0.8rem; margin-top: 0.5rem; }
+.dedicated-field input { flex: 1; background: white; border: 1px solid #e2e8f0; padding: 0.8rem 1.2rem; border-radius: 12px; outline: none; font-size: 0.95rem; }
+.send-btn { background: var(--primary); color: white; border: none; padding: 0 1.5rem; border-radius: 12px; font-weight: 700; cursor: pointer; }
+
+.chat-footer { padding: 2rem; background: rgba(255,255,255,0.8); backdrop-filter: blur(10px); display: flex; gap: 1rem; border-top: 1px solid var(--border); }
+.chat-footer input { flex: 1; background: #f1f5f9; border: 1px solid #e2e8f0; padding: 1rem 1.5rem; border-radius: 50px; outline: none; transition: 0.2s; }
+.chat-footer input:focus { background: white; border-color: var(--primary-light); box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.1); }
+.primary-btn { background: var(--primary); color: white; border: none; padding: 0.8rem 1.8rem; border-radius: 50px; font-weight: 700; cursor: pointer; transition: 0.2s; }
+
+/* RIGHT: LIVE CASE FILE */
+.right-panel { border-right: none; box-shadow: -4px 0 24px rgba(0,0,0,0.01); }
+.case-content { padding: 2rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.2rem; }
+
+.case-card {
+  padding: 1.5rem; border-radius: 20px; background: white; border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft); transition: 0.4s;
+}
+.case-card.active { border-color: #8b5cf655; background: linear-gradient(135deg, #ffffff, #fdf4ff); box-shadow: 0 10px 30px rgba(139, 92, 246, 0.05); }
+
+.card-header { font-size: 0.7rem; font-weight: 900; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.6rem; letter-spacing: 1px; }
+.card-body { font-size: 1rem; color: #334155; font-weight: 500; }
+
+@keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Typing */
+.typing { display: flex; gap: 5px; padding: 1rem 1.5rem; background: white; border-radius: 20px; width: fit-content; box-shadow: var(--shadow-soft); }
+.dot { width: 6px; height: 6px; background: #cbd5e1; border-radius: 50%; animation: bounce 1.4s infinite; }
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce { 0%, 80%, 100% { transform: scale(1); opacity: 0.4; } 40% { transform: scale(1.2); opacity: 1; } }
+
+/* Status Indicator */
+.status-indicator { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: #0d9488; background: #f0fdfa; padding: 0.3rem 0.8rem; border-radius: 50px; border: 1px solid #ccfbf1; }
