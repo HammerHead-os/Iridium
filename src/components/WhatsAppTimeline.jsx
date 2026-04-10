@@ -149,59 +149,52 @@ export default function WhatsAppTimeline() {
   const escalation = getEscalationAnalysis();
 
   return (
-    <section style={{maxWidth:'900px', margin:'0 auto', padding:'2rem', fontFamily:'-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'}}>
-      <div style={{marginBottom:'2rem', textAlign:'center'}}>
-        <h2 style={{color:'#1f2937', marginBottom:'0.5rem'}}>Evidence Timeline Extractor</h2>
-        <p style={{color:'#6b7280', fontSize:'0.95rem'}}>Upload chat exports to auto-generate a court-ready incident chronology with abuse classification</p>
+    <section style={{maxWidth:'1000px', margin:'0 auto', padding:'1rem', fontFamily:'Inter, sans-serif'}}>
+      <div style={{marginBottom:'1.5rem', textAlign:'center'}}>
+        <h2 style={{color:'var(--primary-dark)', marginBottom:'0.4rem', fontSize: '1.4rem', fontFamily: 'Outfit, sans-serif'}}>Evidence Vault</h2>
+        <p style={{color:'var(--text-muted)', fontSize:'0.9rem'}}>Auto-generate a court-ready chronology from chat exports</p>
       </div>
 
-      <div style={{display:'flex', gap:'1rem', marginBottom:'1.5rem', flexWrap:'wrap', justifyContent:'center'}}>
-        <label style={{padding:'0.75rem 1.5rem', backgroundColor:'#3b82f6', color:'white', borderRadius:'8px', cursor:'pointer', fontWeight:'600', border:'none'}}>
-          Select .txt file
+      <div style={{display:'flex', gap:'0.8rem', marginBottom:'1.5rem', flexWrap:'wrap', justifyContent:'center'}}>
+        <label style={{padding:'0.6rem 1.2rem', backgroundColor:'var(--primary)', color:'white', borderRadius:'8px', cursor:'pointer', fontWeight:'700', fontSize: '0.9rem', border:'none'}}>
+          📁 Select File
           <input type="file" accept=".txt,text/plain" onChange={handleFileChange} style={{display:'none'}} />
         </label>
-        <button onClick={handleParseClick} disabled={!rawText.trim() || busy} style={{padding:'0.75rem 1.5rem', backgroundColor: busy ? '#9ca3af' : '#10b981', color:'white', border:'none', borderRadius:'8px', cursor: busy ? 'not-allowed' : 'pointer', fontWeight:'600', fontSize:'1rem'}}>
-          {busy ? '⏳ Analyzing...' : '📊 Analyze & Classify'}
+        <button onClick={handleParseClick} disabled={!rawText.trim() || busy} style={{padding:'0.6rem 1.2rem', backgroundColor: busy ? '#cbd5e1' : 'var(--accent)', color:'white', border:'none', borderRadius:'8px', cursor: busy ? 'not-allowed' : 'pointer', fontWeight:'700', fontSize:'0.9rem'}}>
+          {busy ? '⏳ Analyzing...' : '📊 Generate Chronology'}
         </button>
       </div>
 
-      <textarea value={rawText} onChange={(e) => setRawText(e.target.value)} placeholder="Paste conversation text here..." style={{width:'100%', height:'200px', padding:'1rem', border:'1px solid #d1d5db', borderRadius:'8px', fontFamily:'monospace', fontSize:'0.9rem', marginBottom:'1rem', resize:'vertical'}} />
+      <textarea value={rawText} onChange={(e) => setRawText(e.target.value)} placeholder="Paste text here..." style={{width:'100%', height:'180px', padding:'1rem', border:'1px solid var(--border)', borderRadius:'var(--radius-md)', fontFamily:'monospace', fontSize:'0.9rem', marginBottom:'1rem', resize:'vertical', background: '#fff'}} />
 
-      {uploadedName && <div style={{padding:'0.75rem', backgroundColor:'#d1fae5', color:'#065f46', borderRadius:'6px', marginBottom:'1rem', fontSize:'0.9rem'}}>✓ Loaded: {uploadedName}</div>}
-      {error && <div style={{padding:'1rem', backgroundColor:'#fee2e2', color:'#991b1b', borderRadius:'8px', marginBottom:'1rem', border:'1px solid #fca5a5'}}>⚠️ {error}</div>}
+      {uploadedName && <div style={{padding:'0.6rem 1rem', backgroundColor:'var(--accent-light)', color:'var(--accent)', borderRadius:'var(--radius-sm)', marginBottom:'1rem', fontSize:'0.85rem', fontWeight: 600}}>✓ Loaded: {uploadedName}</div>}
 
       {timeline.length > 0 && (
-        <div>
+        <div style={{animation: 'none'}}>
           {/* Summary Panel */}
-          <div style={{padding:'1.5rem', backgroundColor:'#eff6ff', borderRadius:'12px', marginBottom:'1.5rem', border:'1px solid #bfdbfe'}}>
-            <h3 style={{color:'#1e40af', marginTop:0, marginBottom:'1rem'}}>Analysis Summary</h3>
-            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'1rem', marginBottom:'1rem'}}>
-              <div style={{background:'white', padding:'1rem', borderRadius:'8px', textAlign:'center'}}>
-                <div style={{fontSize:'1.8rem', fontWeight:800, color:'#1e40af'}}>{timeline.length}</div>
-                <div style={{fontSize:'0.75rem', color:'#6b7280'}}>Incidents</div>
+          <div style={{padding:'1.5rem', backgroundColor:'var(--beige)', borderRadius:'var(--radius-md)', marginBottom:'1.5rem', border:'1px solid var(--border)'}}>
+            <h3 style={{color:'var(--primary-dark)', marginTop:0, marginBottom:'1rem', fontFamily: 'Outfit, sans-serif', fontSize: '1.1rem'}}>Analysis Summary</h3>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'1rem', marginBottom:'1.2rem'}}>
+              <div style={{background:'white', padding:'1rem', borderRadius:'var(--radius-sm)', textAlign:'center', border: '1px solid var(--border)'}}>
+                <div style={{fontSize:'1.4rem', fontWeight:800, color:'var(--primary)'}}>{timeline.length}</div>
+                <div style={{fontSize:'0.7rem', color:'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase'}}>Incidents</div>
               </div>
-              <div style={{background:'white', padding:'1rem', borderRadius:'8px', textAlign:'center'}}>
-                <div style={{fontSize:'1.8rem', fontWeight:800, color:'#1e40af'}}>{new Set(timeline.flatMap(e => e.abuse_types || e.keywords || [])).size}</div>
-                <div style={{fontSize:'0.75rem', color:'#6b7280'}}>Abuse Types</div>
+              <div style={{background:'white', padding:'1rem', borderRadius:'var(--radius-sm)', textAlign:'center', border: '1px solid var(--border)'}}>
+                <div style={{fontSize:'1.4rem', fontWeight:800, color:'var(--primary)'}}>{new Set(timeline.flatMap(e => e.abuse_types || e.keywords || [])).size}</div>
+                <div style={{fontSize:'0.7rem', color:'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase'}}>Indicators</div>
               </div>
-              <div style={{background:'white', padding:'1rem', borderRadius:'8px', textAlign:'center'}}>
-                <div style={{fontSize:'1.8rem', fontWeight:800, color: escalation?.escalating ? '#dc2626' : '#10b981'}}>{escalation?.escalating ? '⚠️' : '—'}</div>
-                <div style={{fontSize:'0.75rem', color:'#6b7280'}}>Escalation</div>
+              <div style={{background:'white', padding:'1rem', borderRadius:'var(--radius-sm)', textAlign:'center', border: '1px solid var(--border)'}}>
+                <div style={{fontSize:'1.4rem', fontWeight:800, color: escalation?.escalating ? '#dc2626' : 'var(--accent)'}}>{escalation?.escalating ? '⚠️' : '✅'}</div>
+                <div style={{fontSize:'0.7rem', color:'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase'}}>Status</div>
               </div>
             </div>
             
-            {escalation?.escalating && (
-              <div style={{padding:'0.8rem', background:'#fef2f2', borderRadius:'8px', border:'1px solid #fca5a5', marginBottom:'1rem'}}>
-                <span style={{fontSize:'0.85rem', color:'#991b1b', fontWeight:600}}>⚠️ {escalation.message}</span>
-              </div>
-            )}
-
-            <div style={{display:'flex', gap:'1rem', flexWrap:'wrap'}}>
-              <button onClick={handleDownloadCourtReport} style={{padding:'0.75rem 1.5rem', backgroundColor:'#1e40af', color:'white', border:'none', borderRadius:'6px', cursor:'pointer', fontWeight:'600'}}>
-                📥 Download Court Chronology
+            <div style={{display:'flex', gap:'0.8rem', flexWrap:'wrap'}}>
+              <button onClick={handleDownloadCourtReport} style={{padding:'0.6rem 1.2rem', backgroundColor:'var(--primary-dark)', color:'white', border:'none', borderRadius:'8px', cursor:'pointer', fontWeight:'700', fontSize: '0.85rem'}}>
+                📥 Export Chronology
               </button>
-              <button onClick={handleClearAll} style={{padding:'0.75rem 1.5rem', backgroundColor:'#ef4444', color:'white', border:'none', borderRadius:'6px', cursor:'pointer', fontWeight:'600'}}>
-                🗑️ Clear All
+              <button onClick={handleClearAll} style={{padding:'0.6rem 1.2rem', backgroundColor:'transparent', color:'#ef4444', border:'1px solid #fee2e2', borderRadius:'8px', cursor:'pointer', fontWeight:'700', fontSize: '0.85rem'}}>
+                🗑️ Clear
               </button>
             </div>
           </div>
@@ -214,30 +207,37 @@ export default function WhatsAppTimeline() {
               const colors = ABUSE_COLORS[primaryType] || ABUSE_COLORS.default;
               
               return (
-                <article key={index} style={{padding:'1.5rem', backgroundColor:'white', borderRadius:'12px', border:`2px solid ${colors.border}`, boxShadow:'0 1px 3px rgba(0,0,0,0.1)', borderLeft:`6px solid ${colors.border}`}}>
-                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.75rem', paddingBottom:'0.75rem', borderBottom:'1px solid #f3f4f6'}}>
-                    <strong style={{fontSize:'1.1rem', color:'#1f2937'}}>{formatDate(entry.date)}</strong>
+                <article key={index} style={{
+                  padding:'1.2rem', 
+                  backgroundColor:'white', 
+                  borderRadius:'var(--radius-md)', 
+                  border:`1px solid var(--border)`, 
+                  borderLeft:`6px solid ${colors.border}`,
+                  transition: 'none'
+                }}>
+                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.8rem', paddingBottom:'0.6rem', borderBottom:'1px solid var(--bg-main)'}}>
+                    <strong style={{fontSize:'0.95rem', color:'var(--text-main)', fontFamily: 'Outfit, sans-serif'}}>{formatDate(entry.date)}</strong>
                     <div style={{display:'flex', gap:'0.4rem'}}>
                       {types.map((type, i) => {
                         const c = ABUSE_COLORS[type] || ABUSE_COLORS.default;
-                        return <span key={i} style={{padding:'0.2rem 0.6rem', background:c.bg, color:c.text, borderRadius:'20px', fontSize:'0.7rem', fontWeight:700, border:`1px solid ${c.border}`}}>{c.label}</span>;
+                        return <span key={i} style={{padding:'0.2rem 0.6rem', background:c.bg, color:c.text, borderRadius:'4px', fontSize:'0.65rem', fontWeight:800, border:`1px solid ${c.border}`, textTransform: 'uppercase'}}>{c.label}</span>;
                       })}
                     </div>
                   </div>
-                  <p style={{margin:'0.75rem 0', color:'#374151', lineHeight:1.6}}>{entry.summary}</p>
+                  <p style={{margin:'0.6rem 0', color:'var(--text-main)', lineHeight:1.5, fontSize: '0.9rem'}}>{entry.summary}</p>
                   {entry.keywords?.length > 0 && (
-                    <div style={{marginTop:'0.75rem'}}>
-                      <span style={{color:'#6b7280', fontSize:'0.8rem', fontWeight:'600'}}>Indicators: </span>
-                      {entry.keywords.map((kw, i) => (
-                        <span key={i} style={{display:'inline-block', padding:'0.2rem 0.6rem', backgroundColor:'#fef08a', color:'#92400e', borderRadius:'20px', fontSize:'0.8rem', fontWeight:'500', marginRight:'0.4rem', marginTop:'0.3rem'}}>{kw}</span>
-                      ))}
+                    <div style={{marginTop:'0.6rem'}}>
+                      <div style={{display:'flex', gap: '0.4rem', flexWrap: 'wrap'}}>
+                        {entry.keywords.map((kw, i) => (
+                          <span key={i} style={{padding:'0.2rem 0.5rem', backgroundColor:'#fef9c3', color:'#854d0e', borderRadius:'4px', fontSize:'0.75rem', fontWeight:'600', border: '1px solid #fde047'}}>{kw}</span>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {entry.quotes?.length > 0 && (
-                    <div style={{marginTop:'1rem', paddingTop:'1rem', borderTop:'1px solid #f3f4f6'}}>
-                      <span style={{color:'#6b7280', fontSize:'0.8rem', fontWeight:'600', display:'block', marginBottom:'0.5rem'}}>📝 Direct Evidence:</span>
+                    <div style={{marginTop:'1rem', paddingTop:'0.8rem', borderTop:'1px solid var(--bg-main)'}}>
                       {entry.quotes.map((quote, i) => (
-                        <blockquote key={i} style={{margin:'0 0 0.5rem 0', paddingLeft:'0.75rem', borderLeft:'3px solid #dc2626', color:'#7f1d1d', fontSize:'0.9rem', fontStyle:'italic', backgroundColor:'#fef2f2', padding:'0.75rem', borderRadius:'4px'}}>
+                        <blockquote key={i} style={{margin:'0 0 0.6rem 0', padding:'0.8rem', borderLeft:'4px solid #ef4444', color:'#7f1d1d', fontSize:'0.85rem', fontStyle:'italic', backgroundColor:'#fff1f2', borderRadius:'4px'}}>
                           "{quote}"
                         </blockquote>
                       ))}
@@ -250,11 +250,8 @@ export default function WhatsAppTimeline() {
         </div>
       )}
 
-      <div style={{marginTop:'2rem', padding:'1rem', backgroundColor:'#fef3c7', borderRadius:'8px', border:'1px solid #fcd34d', fontSize:'0.85rem', color:'#78350f'}}>
-        <strong>🛡️ Privacy:</strong> All analysis is performed server-side. Content is processed only to extract timeline data and is not stored.
-      </div>
-      <div style={{marginTop:'1rem', padding:'1rem', backgroundColor:'#f0fdf4', borderRadius:'8px', border:'1px solid #bbf7d0', fontSize:'0.85rem', color:'#166534'}}>
-        <strong>⚖️ Legal Disclaimer:</strong> This tool is a documentation aid only. Always consult qualified HK domestic violence services for formal guidance.
+      <div style={{marginTop:'2rem', padding:'1rem', fontSize:'0.85rem', color:'var(--text-muted)', textAlign: 'center', borderTop: '1px solid var(--border)'}}>
+        🛡️ Encrypted Analysis • ⚖️ Documentation Aid
       </div>
     </section>
   );

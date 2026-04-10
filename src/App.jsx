@@ -72,13 +72,10 @@ function App() {
     <div onClick={handlePanicTap}>
       {!unlocked ? (
         <ZenPlantDecoy onUnlock={() => setUnlocked(true)} />
-      ) : page === 'chatlog-extraction' ? (
-        <ChatlogExtraction onBack={() => setPage('main')} />
       ) : page === 'profile' ? (
         <CaseProfile onBack={() => setPage('main')} />
       ) : (
         <PathfinderDashboard 
-          onOpenChatlogExtraction={() => setPage('chatlog-extraction')} 
           onOpenProfile={() => setPage('profile')}
           onLock={() => { setUnlocked(false); setPage('main'); }} 
         />

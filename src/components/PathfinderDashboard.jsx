@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import WhatsAppTimeline from './WhatsAppTimeline';
 
 const safelyStringify = (val) => {
   if (val === null || val === undefined) return '';
@@ -71,10 +72,9 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
   const [listening, setListening] = useState(false);
   const [showRestore, setShowRestore] = useState(false);
   const [currentTask, setCurrentTask] = useState(() => loadState('zoya_task', {
-    type: 'choice', label: 'What brings you to Zoya today?',
-    options: ['I need to leave tonight', 'I need legal protection', 'I need financial help', 'I want to document evidence'],
     formType: null
   }));
+  const [activeTab, setActiveTab] = useState('chat'); // 'chat' or 'evidence'
 
   const scrollRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -645,67 +645,123 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
             </div>
           </div>
         )}
-        <header className="panel-header" style={{borderBottom:'2px solid rgba(139,111,92,0.1)', padding:'0.8rem 1.5rem'}}>
+        <header className="panel-header" style={{borderBottom:'1px solid var(--border)', padding:'1rem 1.5rem', background: 'white'}}>
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', width:'100%'}}>
-            <h2 style={{color:'#8b6f5c', fontSize:'1.1rem', margin:0}}>{lang === 'zh' ? 'Zoya 倡導者' : 'Zoya Advocate'}</h2>
-            <div style={{display:'flex', alignItems:'center', gap:'0.5rem', flexWrap:'wrap'}}>
-              <button onClick={() => setLang(l => l === 'en' ? 'zh' : 'en')} style={{padding:'0.5rem 1rem', background: lang === 'zh' ? '#fef3c7' : '#f1f5f9', border:'1px solid #e2e8f0', borderRadius:'8px', fontSize:'0.8rem', fontWeight:700, cursor:'pointer', color:'#1e293b'}}>
+            <h2 style={{color:'var(--primary-dark)', fontSize:'1rem', margin:0, fontFamily: 'Outfit, sans-serif'}}>{lang === 'zh' ? 'Zoya 工作站' : 'Zoya Workspace'}</h2>
+            <div style={{display:'flex', alignItems:'center', gap:'0.6rem', flexWrap:'wrap'}}>
+              <button onClick={() => setLang(l => l === 'en' ? 'zh' : 'en')} style={{padding:'0.4rem 0.8rem', background: '#f1f5f9', border:'1px solid #e2e8f0', borderRadius:'8px', fontSize:'0.8rem', fontWeight:700, cursor:'pointer', color:'#1e293b'}}>
                 {lang === 'zh' ? '中文' : 'EN'}
               </button>
-              <div className="status-indicator" style={{fontSize:'0.7rem', padding:'0.4rem 0.8rem'}}>{lang === 'zh' ? '加密連線' : 'Encrypted'}</div>
-              {onOpenChatlogExtraction && (
-                <button onClick={onOpenChatlogExtraction} style={{padding:'0.5rem 1rem', backgroundColor:'#10b981', color:'white', border:'none', borderRadius:'8px', cursor:'pointer', fontSize:'0.8rem', fontWeight:700}}>📊 {lang === 'zh' ? '證據' : 'Evidence'}</button>
-              )}
+              <div className="status-indicator" style={{fontSize:'0.75rem', padding:'0.4rem 0.8rem', fontWeight: 800}}>{lang === 'zh' ? '加密連線' : 'Encrypted'}</div>
               {onOpenProfile && (
-                <button onClick={onOpenProfile} style={{padding:'0.5rem 1rem', backgroundColor:'#6b5344', color:'white', border:'none', borderRadius:'8px', cursor:'pointer', fontSize:'0.8rem', fontWeight:700}}>📋 {lang === 'zh' ? '個人資料' : 'Profile'}</button>
+                <button onClick={onOpenProfile} style={{padding:'0.4rem 0.8rem', backgroundColor:'var(--primary-dark)', color:'white', border:'none', borderRadius:'8px', cursor:'pointer', fontSize:'0.8rem', fontWeight:700}}>📋 {lang === 'zh' ? '個人資料' : 'Profile'}</button>
               )}
-              <button onClick={handleClearChat} style={{background:'transparent', border:'1px solid rgba(239,68,68,0.3)', color:'#ef4444', padding:'0.5rem 1rem', borderRadius:'8px', fontSize:'0.8rem', cursor:'pointer', fontWeight:600}}>{lang === 'zh' ? '清除' : 'Clear'}</button>
+              <button onClick={handleClearChat} style={{background:'transparent', border:'1px solid rgba(239,68,68,0.1)', color:'#ef4444', padding:'0.4rem 0.8rem', borderRadius:'8px', fontSize:'0.8rem', cursor:'pointer', fontWeight:700}}>{lang === 'zh' ? '清除' : 'Clear'}</button>
             </div>
           </div>
         </header>
-         
-        <div className="chat-messages">
-          {(messages || []).map((m, i) => (
-            <div key={`msg-${i}`} className={`bubble ${m.role} ${m.isAutoAction ? 'auto-action' : ''}`} style={{whiteSpace:'pre-line'}}>
-              {renderWithLinks(m.text)}
-            </div>
-          ))}
-          {!loading && currentTask && (
-            <div className="bubble agent intake-bubble">
-              <p style={{marginBottom:'0.8rem', fontWeight:800, color:'#8b6f5c', fontSize:'0.9rem'}}>{safelyStringify(currentTask.label)}</p>
-              {currentTask.type === 'choice' ? (
-                <div className="option-grid">
-                  {(currentTask.options || []).map((opt, i) => (
-                    <div key={`opt-${i}`} className="pill-btn" onClick={() => handleAction(opt)} role="button" style={{textAlign:'center'}}>{safelyStringify(opt)}</div>
-                  ))}
-                </div>
-              ) : (
-                <div className="dedicated-field">
-                  <input type="text" placeholder="Type your response..." value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAction()} />
-                  <div className="send-btn" onClick={() => handleAction()} role="button" style={{display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer'}}>OK</div>
-                </div>
-              )}
-              {currentTask.formType && (
-                <div style={{marginTop:'0.8rem', padding:'0.8rem', background:'#f5f0e8', borderRadius:'10px', border:'1px solid #e2ddd5'}}>
-                  <p style={{fontSize:'0.75rem', color:'#8b6f5c', fontWeight:600, marginBottom:'0.4rem'}}>✨ Official HK form identified</p>
-                  <div className="primary-btn" style={{background:'#8b6f5c', width:'100%', fontSize:'0.75rem', textAlign:'center', cursor:'pointer'}} onClick={() => handleAutofillKnown(currentTask.formType)}>Autofill & Download PDF</div>
-                </div>
-              )}
-            </div>
-          )}
-          {loading && <div className="typing"><div className="dot" /><div className="dot" /><div className="dot" /></div>}
-          <div ref={scrollRef} />
-        </div>
 
-        <div className="chat-footer">
-          <input type="text" placeholder={lang === 'zh' ? '同Zoya講...' : 'Message Zoya...'} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAction()} />
-          <button onClick={toggleVoice} style={{background: listening ? '#ef4444' : '#f1f5f9', color: listening ? 'white' : '#64748b', border:'none', borderRadius:'50%', width:'42px', height:'42px', cursor:'pointer', fontSize:'1.1rem', flexShrink:0, transition:'0.2s'}}>
-            {listening ? '⏹' : '🎤'}
-          </button>
-          <div className="primary-btn" onClick={() => handleAction()} role="button" style={{display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer'}}>{lang === 'zh' ? '發送' : 'Send'}</div>
-          <button onClick={handleSOS} style={{background:'#dc2626', color:'white', border:'none', borderRadius:'50px', padding:'0.8rem 1.2rem', fontSize:'0.9rem', fontWeight:800, cursor:'pointer', flexShrink:0, boxShadow:'0 4px 15px rgba(220,38,38,0.3)'}}>🚨 SOS</button>
-          {onLock && <button onClick={onLock} style={{background:'#22c55e', color:'white', border:'none', borderRadius:'50px', padding:'0.8rem 1.2rem', fontSize:'0.9rem', fontWeight:800, cursor:'pointer', flexShrink:0, boxShadow:'0 4px 15px rgba(34,197,94,0.3)'}}>🌱 {lang === 'zh' ? '隱藏' : 'Hide'}</button>}
+        {/* TAB SWITCHER */}
+        <div style={{padding: '0.8rem 1.2rem', background: 'var(--bg-main)', borderBottom: '1px solid var(--border)', display: 'flex', gap: '1rem'}}>
+          <div 
+            onClick={() => setActiveTab('chat')}
+            style={{
+              flex: 1, 
+              padding: '0.8rem', 
+              borderRadius: '12px', 
+              cursor: 'pointer', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              gap: '0.8rem',
+              transition: 'opacity 0.2s, background 0.2s',
+              background: activeTab === 'chat' ? 'white' : 'transparent',
+              border: activeTab === 'chat' ? '1.5px solid var(--primary)' : '1.5px solid transparent',
+              opacity: activeTab === 'chat' ? 1 : 0.6
+            }}
+          >
+            <span style={{fontSize: '1.2rem'}}>💬</span>
+            <div style={{textAlign: 'left', minWidth: '100px'}}>
+              <div style={{fontSize: '0.85rem', fontWeight: 800, color: activeTab === 'chat' ? 'var(--primary-dark)' : 'var(--text-muted)', fontFamily: 'Outfit, sans-serif'}}>ZOYA CHAT</div>
+              <div style={{fontSize: '0.75rem', color: 'var(--text-muted)'}}>{lang === 'zh' ? '安全聊天' : 'Secure Guidance'}</div>
+            </div>
+          </div>
+
+          <div 
+            onClick={() => setActiveTab('evidence')}
+            style={{
+              flex: 1, 
+              padding: '0.8rem', 
+              borderRadius: '12px', 
+              cursor: 'pointer', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              gap: '0.8rem',
+              transition: 'opacity 0.2s, background 0.2s',
+              background: activeTab === 'evidence' ? 'white' : 'transparent',
+              border: activeTab === 'evidence' ? '1.5px solid var(--accent)' : '1.5px solid transparent',
+              opacity: activeTab === 'evidence' ? 1 : 0.6
+            }}
+          >
+            <span style={{fontSize: '1.2rem'}}>📊</span>
+            <div style={{textAlign: 'left', minWidth: '100px'}}>
+              <div style={{fontSize: '0.85rem', fontWeight: 800, color: activeTab === 'evidence' ? 'var(--accent)' : 'var(--text-muted)', fontFamily: 'Outfit, sans-serif'}}>EVIDENCE</div>
+              <div style={{fontSize: '0.75rem', color: 'var(--text-muted)'}}>{lang === 'zh' ? '證據提取' : 'Timeline'}</div>
+            </div>
+          </div>
         </div>
+         
+        {activeTab === 'chat' ? (
+          <>
+            <div className="chat-messages">
+              {(messages || []).map((m, i) => (
+                <div key={`msg-${i}`} className={`bubble ${m.role} ${m.isAutoAction ? 'auto-action' : ''}`} style={{whiteSpace:'pre-line'}}>
+                  {renderWithLinks(m.text)}
+                </div>
+              ))}
+              {!loading && currentTask && (
+                <div className="bubble agent intake-bubble">
+                  <p style={{marginBottom:'0.8rem', fontWeight:800, color:'#8b6f5c', fontSize:'0.9rem'}}>{safelyStringify(currentTask.label)}</p>
+                  {currentTask.type === 'choice' ? (
+                    <div className="option-grid">
+                      {(currentTask.options || []).map((opt, i) => (
+                        <div key={`opt-${i}`} className="pill-btn" onClick={() => handleAction(opt)} role="button" style={{textAlign:'center'}}>{safelyStringify(opt)}</div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="dedicated-field">
+                      <input type="text" placeholder="Type your response..." value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAction()} />
+                      <div className="send-btn" onClick={() => handleAction()} role="button" style={{display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer'}}>OK</div>
+                    </div>
+                  )}
+                  {currentTask.formType && (
+                    <div style={{marginTop:'0.8rem', padding:'0.8rem', background:'#f5f0e8', borderRadius:'10px', border:'1px solid #e2ddd5'}}>
+                      <p style={{fontSize:'0.75rem', color:'#8b6f5c', fontWeight:600, marginBottom:'0.4rem'}}>✨ Official HK form identified</p>
+                      <div className="primary-btn" style={{background:'#8b6f5c', width:'100%', fontSize:'0.75rem', textAlign:'center', cursor:'pointer'}} onClick={() => handleAutofillKnown(currentTask.formType)}>Autofill & Download PDF</div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {loading && <div className="typing"><div className="dot" /><div className="dot" /><div className="dot" /></div>}
+              <div ref={scrollRef} />
+            </div>
+
+            <div className="chat-footer">
+              <input type="text" placeholder={lang === 'zh' ? '同Zoya講...' : 'Message Zoya...'} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAction()} />
+              <button onClick={toggleVoice} style={{background: listening ? '#ef4444' : '#f1f5f9', color: listening ? 'white' : '#64748b', border:'none', borderRadius:'50%', width:'42px', height:'42px', cursor:'pointer', fontSize:'1.1rem', flexShrink:0, transition:'0.2s'}}>
+                {listening ? '⏹' : '🎤'}
+              </button>
+              <div className="primary-btn" onClick={() => handleAction()} role="button" style={{display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer'}}>{lang === 'zh' ? '發送' : 'Send'}</div>
+              <button onClick={handleSOS} style={{background:'#dc2626', color:'white', border:'none', borderRadius:'50px', padding:'0.8rem 1.2rem', fontSize:'0.9rem', fontWeight:800, cursor:'pointer', flexShrink:0, boxShadow:'0 4px 15px rgba(220,38,38,0.3)'}}>🚨 SOS</button>
+              {onLock && <button onClick={onLock} style={{background:'#22c55e', color:'white', border:'none', borderRadius:'50px', padding:'0.8rem 1.2rem', fontSize:'0.9rem', fontWeight:800, cursor:'pointer', flexShrink:0, boxShadow:'0 4px 15px rgba(34,197,94,0.3)'}}>🌱 {lang === 'zh' ? '隱藏' : 'Hide'}</button>}
+            </div>
+          </>
+        ) : (
+          <div style={{ flex: 1, overflowY: 'auto', background: '#f8fafc', padding: '1rem' }}>
+            <WhatsAppTimeline />
+          </div>
+        )}
       </main>
 
       {/* RIGHT: LIVE PDF ARCHITECT */}
@@ -728,15 +784,15 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
             </div>
           )}
         </div>
-        <div style={{padding:'0.8rem', background:'white', borderTop:'1px solid var(--border)'}}>
-          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.4rem', marginBottom:'0.6rem'}}>
-            <div className="case-card active" style={{padding:'0.4rem'}}><div className="card-header" style={{fontSize:'0.55rem'}}>{lang === 'zh' ? '身份' : 'Identity'}</div><div className="card-body" style={{fontSize:'0.65rem'}}>{safelyStringify(caseFile.name || '...')}</div></div>
-            <div className="case-card active" style={{padding:'0.4rem'}}><div className="card-header" style={{fontSize:'0.55rem'}}>{lang === 'zh' ? '安全' : 'Safety'}</div><div className="card-body" style={{fontSize:'0.65rem', color: caseFile.safety === 'unsafe' ? '#dc2626' : caseFile.safety === 'at_risk' ? '#f59e0b' : '#10b981'}}>{safelyStringify(caseFile.safety || '...')}</div></div>
-            <div className="case-card active" style={{padding:'0.4rem'}}><div className="card-header" style={{fontSize:'0.55rem'}}>{lang === 'zh' ? '財務' : 'Finance'}</div><div className="card-body" style={{fontSize:'0.65rem'}}>{safelyStringify(caseFile.financial || '...')}</div></div>
-            <div className="case-card active" style={{padding:'0.4rem'}}><div className="card-header" style={{fontSize:'0.55rem'}}>{lang === 'zh' ? '法律' : 'Legal'}</div><div className="card-body" style={{fontSize:'0.65rem'}}>{safelyStringify(caseFile.legal || '...')}</div></div>
+        <div style={{padding:'1.5rem', background:'white', borderTop:'1px solid var(--border)'}}>
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.6rem', marginBottom:'1.2rem'}}>
+            <div className="case-card active" style={{padding:'0.8rem'}}><div className="card-header" style={{fontSize:'0.7rem'}}>{lang === 'zh' ? '身份' : 'Identity'}</div><div className="card-body" style={{fontSize:'0.9rem'}}>{safelyStringify(caseFile.name || '...')}</div></div>
+            <div className="case-card active" style={{padding:'0.8rem'}}><div className="card-header" style={{fontSize:'0.7rem'}}>{lang === 'zh' ? '安全' : 'Safety'}</div><div className="card-body" style={{fontSize:'0.9rem', color: caseFile.safety === 'unsafe' ? '#dc2626' : caseFile.safety === 'at_risk' ? '#f59e0b' : '#10b981'}}>{safelyStringify(caseFile.safety || '...')}</div></div>
+            <div className="case-card active" style={{padding:'0.8rem'}}><div className="card-header" style={{fontSize:'0.7rem'}}>{lang === 'zh' ? '財務' : 'Finance'}</div><div className="card-body" style={{fontSize:'0.9rem'}}>{safelyStringify(caseFile.financial || '...')}</div></div>
+            <div className="case-card active" style={{padding:'0.8rem'}}><div className="card-header" style={{fontSize:'0.7rem'}}>{lang === 'zh' ? '法律' : 'Legal'}</div><div className="card-body" style={{fontSize:'0.9rem'}}>{safelyStringify(caseFile.legal || '...')}</div></div>
           </div>
           <div className="mini-upload-btn-wrapper">
-            <div className="primary-btn" style={{width:'100%', borderRadius:'10px', textAlign:'center', cursor:'pointer', fontSize:'0.7rem'}}>{lang === 'zh' ? '映射任何模板' : 'Map Any Template'}</div>
+            <div className="primary-btn" style={{width:'100%', borderRadius:'8px', textAlign:'center', cursor:'pointer', fontSize:'0.85rem', padding:'0.8rem'}}>{lang === 'zh' ? '映射模板' : 'Map Template'}</div>
             <input type="file" onChange={handleFillGeneral} accept=".pdf,.docx"/>
           </div>
         </div>
