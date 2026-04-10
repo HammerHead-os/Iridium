@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-export default function PathfinderDashboard() {
+export default function PathfinderDashboard({ onOpenChatlogExtraction }) {
   const [messages, setMessages] = useState([
     { role: 'agent', text: "Hello. I'm Zoya, your Advocate. I'm here to coordinate your legal and support path with empathy and safety. Are you in a safe space to talk right now?" }
   ]);
@@ -133,9 +133,26 @@ export default function PathfinderDashboard() {
 
       {/* MAIN: CHAT HISTORY */}
       <main className="panel chat-panel">
-         <header className="panel-header">
+         <header className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
            <h2 style={{color:'#8b5cf6'}}>Zoya Advocate</h2>
-           <div className="status-indicator">Private Connection</div>
+           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+             <div className="status-indicator">Private Connection</div>
+             <button 
+               onClick={onOpenChatlogExtraction}
+               style={{
+                 padding: '0.5rem 1rem',
+                 backgroundColor: '#10b981',
+                 color: 'white',
+                 border: 'none',
+                 borderRadius: '8px',
+                 cursor: 'pointer',
+                 fontSize: '0.9rem',
+                 fontWeight: '600'
+               }}
+             >
+               Chatlog Extraction
+             </button>
+           </div>
          </header>
          
          <div className="chat-messages">
