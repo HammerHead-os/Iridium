@@ -13,6 +13,7 @@
     "start": "concurrently \"npm run start:backend\" \"npm run start:frontend\""
   },
   "dependencies": {
+    "@google-cloud/documentai": "^9.6.0",
     "@google-cloud/vertexai": "^1.11.0",
     "concurrently": "^9.2.1",
     "cors": "^2.8.6",
