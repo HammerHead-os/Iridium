@@ -641,6 +641,9 @@ app.post('/api/extract-timeline', async (req, res) => {
   } catch (error) {
     console.error('extract-timeline error:', error);
     return res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown backend error' });
+  }
+});
+
 // Diagnostic Endpoint to discover PDF Field IDs
 app.get('/api/debug-fields', async (req, res) => {
   try {

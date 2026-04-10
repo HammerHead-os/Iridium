@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 // Helper to prevent [object Object] rendering
 const safelyStringify = (val) => {
@@ -12,10 +12,6 @@ const safelyStringify = (val) => {
 };
 
 export default function PathfinderDashboard({ onOpenChatlogExtraction }) {
-  const [messages, setMessages] = useState([
-    { role: 'agent', text: "Hello. I'm Zoya, your Advocate. I'm here to coordinate your legal and support path with empathy and safety. Are you in a safe space to talk right now?" }
-  ]);
-export default function PathfinderDashboard() {
   // Load state from localStorage or use defaults
   const loadState = (key, defaultValue) => {
     try {
@@ -90,43 +86,28 @@ export default function PathfinderDashboard() {
 
   // Save state to localStorage whenever it changes
   useEffect(() => {
-    try {
-      localStorage.setItem('zoya_messages', JSON.stringify(messages));
-    } catch (e) {
-      console.error('Failed to save messages to localStorage:', e);
-    }
+    try { localStorage.setItem('zoya_messages', JSON.stringify(messages)); }
+    catch (e) { console.error('Failed to save messages:', e); }
   }, [messages]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('zoya_casefile', JSON.stringify(caseFile));
-    } catch (e) {
-      console.error('Failed to save caseFile to localStorage:', e);
-    }
+    try { localStorage.setItem('zoya_casefile', JSON.stringify(caseFile)); }
+    catch (e) { console.error('Failed to save caseFile:', e); }
   }, [caseFile]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('zoya_docs', JSON.stringify(docDatabase));
-    } catch (e) {
-      console.error('Failed to save docDatabase to localStorage:', e);
-    }
+    try { localStorage.setItem('zoya_docs', JSON.stringify(docDatabase)); }
+    catch (e) { console.error('Failed to save docDatabase:', e); }
   }, [docDatabase]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('zoya_task', JSON.stringify(currentTask));
-    } catch (e) {
-      console.error('Failed to save currentTask to localStorage:', e);
-    }
+    try { localStorage.setItem('zoya_task', JSON.stringify(currentTask)); }
+    catch (e) { console.error('Failed to save currentTask:', e); }
   }, [currentTask]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('zoya_formtype', JSON.stringify(activeFormType));
-    } catch (e) {
-      console.error('Failed to save activeFormType to localStorage:', e);
-    }
+    try { localStorage.setItem('zoya_formtype', JSON.stringify(activeFormType)); }
+    catch (e) { console.error('Failed to save activeFormType:', e); }
   }, [activeFormType]);
 
   // Live PDF Synchronization
@@ -282,6 +263,15 @@ export default function PathfinderDashboard() {
   const requiredDocs = (docDatabase || []).filter(d => !d.uploaded);
   const submittedDocs = (docDatabase || []).filter(d => d.uploaded);
 
+  // Compute case progress from caseFile fields + doc status
+  const caseFields = ['name', 'safety', 'financial', 'legal', 'children'];
+  const filledFields = caseFields.filter(k => caseFile[k] && caseFile[k] !== 'Establishing...');
+  const totalDocs = docDatabase.length;
+  const uploadedDocs = submittedDocs.length;
+  const progressItems = filledFields.length + uploadedDocs;
+  const progressTotal = caseFields.length + Math.max(totalDocs, 1);
+  const progressPct = Math.round((progressItems / progressTotal) * 100);
+
   return (
     <div className="dashboard-container">
       
@@ -290,6 +280,37 @@ export default function PathfinderDashboard() {
         <header className="panel-header">
            <h2>Doc Database</h2>
         </header>
+
+        {/* PROGRESS TRACKER */}
+        <div style={{padding: '1rem 1.5rem', borderBottom: '1px solid var(--border)'}}>
+          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem'}}>
+            <span style={{fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', color: '#8b5cf6'}}>
+              Case Progress
+            </span>
+            <span style={{fontSize: '0.75rem', fontWeight: 700, color: progressPct === 100 ? '#10b981' : '#8b5cf6'}}>
+              {progressPct}%
+            </span>
+          </div>
+          <div style={{width: '100%', height: '6px', background: '#f1f5f9', borderRadius: '3px', overflow: 'hidden'}}>
+            <div style={{
+              width: `${progressPct}%`, 
+              height: '100%', 
+              background: progressPct === 100 
+                ? 'linear-gradient(90deg, #10b981, #34d399)' 
+                : 'linear-gradient(90deg, #8b5cf6, #a78bfa)',
+              borderRadius: '3px',
+              transition: 'width 0.6s ease'
+            }} />
+          </div>
+          <div style={{display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem'}}>
+            <span style={{fontSize: '0.65rem', color: '#94a3b8'}}>
+              {filledFields.length}/{caseFields.length} fields
+            </span>
+            <span style={{fontSize: '0.65rem', color: '#94a3b8'}}>
+              {uploadedDocs}/{totalDocs || 0} docs
+            </span>
+          </div>
+        </div>
         
         <div className="doc-list">
           <span className="task-label">Action Needed</span>
@@ -329,30 +350,28 @@ export default function PathfinderDashboard() {
 
       {/* MAIN: CHAT HISTORY */}
       <main className="panel chat-panel">
-         <header className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-           <h2 style={{color:'#8b5cf6'}}>Zoya Advocate</h2>
-           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-             <div className="status-indicator">Private Connection</div>
-             <button 
-               onClick={onOpenChatlogExtraction}
-               style={{
-                 padding: '0.5rem 1rem',
-                 backgroundColor: '#10b981',
-                 color: 'white',
-                 border: 'none',
-                 borderRadius: '8px',
-                 cursor: 'pointer',
-                 fontSize: '0.9rem',
-                 fontWeight: '600'
-               }}
-             >
-               Chatlog Extraction
-             </button>
          <header className="panel-header" style={{borderBottom: '2px solid rgba(139, 92, 246, 0.1)'}}>
            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%'}}>
              <h2 style={{color:'#8b5cf6', fontSize: '1.2rem', margin: 0}}>Zoya Advocate</h2>
              <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
                <div className="status-indicator">End-to-End Encrypted</div>
+               {onOpenChatlogExtraction && (
+                 <button 
+                   onClick={onOpenChatlogExtraction}
+                   style={{
+                     padding: '0.4rem 0.8rem',
+                     backgroundColor: '#10b981',
+                     color: 'white',
+                     border: 'none',
+                     borderRadius: '8px',
+                     cursor: 'pointer',
+                     fontSize: '0.75rem',
+                     fontWeight: '600'
+                   }}
+                 >
+                   Chatlog Extraction
+                 </button>
+               )}
                <button 
                  onClick={handleClearChat}
                  style={{
