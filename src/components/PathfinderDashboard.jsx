@@ -104,10 +104,10 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
       queue.push({ delay: 1800, icon: '✓', text: 'ELIGIBLE — assets below HK$452,320 threshold', action: () => {
         setCaseFile(prev => ({ ...prev, legal: prev.legal || 'Legal Aid: Eligible' }));
       }});
-      queue.push({ delay: 2400, icon: '⟳', text: 'Pre-filling Legal Aid application...' });
-      queue.push({ delay: 3600, icon: '✓', text: 'Legal Aid form queued', action: () => {
+      queue.push({ delay: 2400, icon: '⟳', text: 'Locating Legal Aid application form...' });
+      queue.push({ delay: 3600, icon: '✓', text: 'Legal Aid form link ready', action: () => {
         if (!docDatabase.some(d => d.name === 'Legal Aid Application'))
-          setDocDatabase(prev => [...prev, { name: 'Legal Aid Application', uploaded: false, formType: 'legal_aid' }]);
+          setDocDatabase(prev => [...prev, { name: 'Legal Aid Application', uploaded: false, formType: 'legal_aid', link: 'https://www.lad.gov.hk/eng/documents/pdfform/Form3.pdf' }]);
       }});
     }
 
@@ -609,7 +609,9 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
             return (
               <div key={`req-${idx}`} className="doc-item">
                 <div className="doc-name">{safelyStringify(doc.name)}</div>
-                {doc.formType ? (
+                {doc.link ? (
+                  <a href={doc.link} target="_blank" rel="noopener noreferrer" className="mini-upload-btn" style={{background:'#8b6f5c', color:'white', border:'none', textAlign:'center', cursor:'pointer', display:'block', textDecoration:'none'}}>Open Official Form ↗</a>
+                ) : doc.formType ? (
                   <div className="mini-upload-btn" style={{background:'#8b6f5c', color:'white', border:'none', textAlign:'center', cursor:'pointer'}} onClick={() => handleAutofillKnown(doc.formType)}>Zoya Autofill</div>
                 ) : (
                   <div className="mini-upload-btn-wrapper"><div className="mini-upload-btn" style={{textAlign:'center'}}>Submit</div><input type="file" onChange={(e) => handleSmartUpload(e.target.files?.[0], oi)} /></div>
