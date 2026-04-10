@@ -11,6 +11,10 @@ const safelyStringify = (val) => {
   return String(val);
 };
 
+export default function PathfinderDashboard({ onOpenChatlogExtraction }) {
+  const [messages, setMessages] = useState([
+    { role: 'agent', text: "Hello. I'm Zoya, your Advocate. I'm here to coordinate your legal and support path with empathy and safety. Are you in a safe space to talk right now?" }
+  ]);
 export default function PathfinderDashboard() {
   // Load state from localStorage or use defaults
   const loadState = (key, defaultValue) => {
@@ -325,6 +329,25 @@ export default function PathfinderDashboard() {
 
       {/* MAIN: CHAT HISTORY */}
       <main className="panel chat-panel">
+         <header className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+           <h2 style={{color:'#8b5cf6'}}>Zoya Advocate</h2>
+           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+             <div className="status-indicator">Private Connection</div>
+             <button 
+               onClick={onOpenChatlogExtraction}
+               style={{
+                 padding: '0.5rem 1rem',
+                 backgroundColor: '#10b981',
+                 color: 'white',
+                 border: 'none',
+                 borderRadius: '8px',
+                 cursor: 'pointer',
+                 fontSize: '0.9rem',
+                 fontWeight: '600'
+               }}
+             >
+               Chatlog Extraction
+             </button>
          <header className="panel-header" style={{borderBottom: '2px solid rgba(139, 92, 246, 0.1)'}}>
            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%'}}>
              <h2 style={{color:'#8b5cf6', fontSize: '1.2rem', margin: 0}}>Zoya Advocate</h2>
