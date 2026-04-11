@@ -424,6 +424,44 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
 
   const markDocUploaded = (idx) => { if (idx < 0) return; setDocDatabase(prev => { if (!prev[idx]) return prev; const c = [...prev]; c[idx].uploaded = true; return c; }); };
 
+  // ===== GEMINI VISION SMART FILL =====
+  const [smartFillLoading, setSmartFillLoading] = useState(false);
+
+  const handleSmartFill = async (formType, uploadedFile = null) => {
+    setSmartFillLoading(true);
+    setActionLog(prev => [...prev.slice(-8), { icon: '⟳', text: 'Gemini Vision reading form layout...', time: Date.now() }]);
+    try {
+      const fd = new FormData();
+      fd.append('caseFile', JSON.stringify(caseFile));
+      if (uploadedFile) { fd.append('pdf', uploadedFile); }
+      else { fd.append('formType', formType); }
+
+      setTimeout(() => setActionLog(prev => [...prev.slice(-8), { icon: '⟳', text: 'Detecting all fillable fields autonomously...', time: Date.now() }]), 1200);
+
+      const res = await fetch('http://localhost:3001/api/smart-fill', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Smart fill failed' }));
+        setActionLog(prev => [...prev.slice(-8), { icon: '✗', text: `Smart fill error: ${err.error}`, time: Date.now() }]);
+        return;
+      }
+      const filledFields = (res.headers.get('X-Fields-Filled') || '').split(',').filter(Boolean);
+      const skippedFields = (res.headers.get('X-Fields-Skipped') || '').split(',').filter(Boolean);
+      setActionLog(prev => [...prev.slice(-8),
+        { icon: '✓', text: `Vision filled ${filledFields.length} fields autonomously`, time: Date.now() },
+        ...(skippedFields.length > 0 ? [{ icon: '○', text: `Missing case data: ${skippedFields.join(', ')}`, time: Date.now() }] : []),
+      ]);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = uploadedFile ? `Zoya_SmartFill_${uploadedFile.name}` : `Zoya_SmartFill_${formType}.pdf`;
+      a.click(); URL.revokeObjectURL(url);
+      const di = docDatabase.findIndex(d => d.formType === formType);
+      if (di !== -1) markDocUploaded(di);
+    } catch(e) {
+      setActionLog(prev => [...prev.slice(-8), { icon: '✗', text: `Smart fill failed: ${e.message}`, time: Date.now() }]);
+    } finally { setSmartFillLoading(false); }
+  };
+
   const handleAutofillKnown = async (formType) => {
     if (!formType) return; setLoading(true);
     try {
@@ -615,7 +653,23 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
                 {doc.link ? (
                   <a href={doc.link} target="_blank" rel="noopener noreferrer" className="mini-upload-btn" style={{background:'#8b6f5c', color:'white', border:'none', textAlign:'center', cursor:'pointer', display:'block', textDecoration:'none'}}>Open Official Form ↗</a>
                 ) : doc.formType ? (
-                  <div className="mini-upload-btn" style={{background:'#8b6f5c', color:'white', border:'none', textAlign:'center', cursor:'pointer'}} onClick={() => handleAutofillKnown(doc.formType)}>Zoya Autofill</div>
+                  <div style={{display:'flex', gap:'0.4rem'}}>
+                    <div
+                      className="mini-upload-btn"
+                      style={{flex:1, background: smartFillLoading ? '#94a3b8' : 'linear-gradient(135deg,#6366f1,#8b5cf6)', color:'white', border:'none', textAlign:'center', cursor: smartFillLoading ? 'not-allowed' : 'pointer', fontSize:'0.75rem', fontWeight:800}}
+                      onClick={() => !smartFillLoading && handleSmartFill(doc.formType)}
+                      title="Gemini Vision reads the PDF layout and fills fields autonomously"
+                    >
+                      {smartFillLoading ? '⟳ Analyzing...' : '⚡ Smart Fill'}
+                    </div>
+                    <div
+                      className="mini-upload-btn"
+                      style={{flex:1, background:'#8b6f5c', color:'white', border:'none', textAlign:'center', cursor:'pointer', fontSize:'0.75rem'}}
+                      onClick={() => handleAutofillKnown(doc.formType)}
+                    >
+                      Classic Fill
+                    </div>
+                  </div>
                 ) : (
                   <div className="mini-upload-btn-wrapper"><div className="mini-upload-btn" style={{textAlign:'center'}}>Submit</div><input type="file" onChange={(e) => handleSmartUpload(e.target.files?.[0], oi)} /></div>
                 )}

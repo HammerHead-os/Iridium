@@ -412,7 +412,185 @@ CRITICAL: Extract ALL facts from the ENTIRE conversation history. If she said he
   }
 });
 
-// New Endpoint for Local Autofilling
+// ===== GEMINI VISION SMART FILL =====
+// Cache so Gemini is only called once per form file (keyed by filename)
+const fieldPositionCache = {};
+
+// Ask Gemini Vision to read the PDF and return field positions as percentages
+async function detectFieldsWithGemini(pdfBuffer, pageWidth, pageHeight) {
+  const pdfBase64 = pdfBuffer.toString('base64');
+
+  const model = vertexAI.preview.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    generationConfig: { responseMimeType: 'application/json' },
+  });
+
+  const prompt = `You are a form-analysis agent. This is a government PDF form.
+
+Identify every blank fillable field where a person would write their information (name, ID, date, address, phone, income, signature areas, checkboxes, etc.).
+
+For EACH field return:
+- "semantic_key": A snake_case key describing what data goes here (e.g. "applicant_name", "hkid_number", "date_of_birth", "monthly_income", "home_address", "phone_number", "spouse_name", "marriage_date", "number_of_children")
+- "label_text": The exact printed label text next to this field on the form
+- "x_pct": X coordinate of where to START writing, as a decimal 0.0-1.0 (proportion of page width from left)
+- "y_pct": Y coordinate from TOP of page, as a decimal 0.0-1.0 (proportion of page height)
+- "field_type": "text" | "date" | "checkbox" | "number"
+
+Rules:
+- Page dimensions are ${Math.round(pageWidth)}x${Math.round(pageHeight)} points
+- Return ONLY fields that need user input — skip printed text, headings, instructions
+- x_pct and y_pct should point to where the ANSWER should be written (just after or below the label)
+- Be precise. Small errors cause text to land outside the field.
+
+Return a JSON array: [{"semantic_key":"...","label_text":"...","x_pct":0.0,"y_pct":0.0,"field_type":"text"}, ...]`;
+
+  const result = await model.generateContent({
+    contents: [{
+      role: 'user',
+      parts: [
+        { inlineData: { mimeType: 'application/pdf', data: pdfBase64 } },
+        { text: prompt }
+      ]
+    }]
+  });
+
+  const raw = result.response.candidates[0].content.parts[0].text;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : (parsed.fields || []);
+  } catch(e) {
+    const match = raw.match(/\[[\s\S]*\]/);
+    if (match) return JSON.parse(match[0]);
+    throw new Error('Gemini Vision returned unparseable field data: ' + raw.slice(0, 300));
+  }
+}
+
+// Semantically match detected Gemini fields to the caseFile
+function matchFieldToCaseFile(semanticKey, labelText, caseFile) {
+  const key = (semanticKey + ' ' + labelText).toLowerCase();
+
+  // Direct semantic matching — no hard-coded form knowledge
+  const matchers = [
+    { patterns: ['name', 'applicant name', 'full name', 'your name'], value: caseFile.name },
+    { patterns: ['hkid', 'identity doc', 'id number', 'id no', 'id card'], value: caseFile.hkid },
+    { patterns: ['date of birth', 'dob', 'birth date', 'born'], value: caseFile.dob },
+    { patterns: ['address', 'residential', 'home address', 'living'], value: caseFile.address },
+    { patterns: ['phone', 'telephone', 'mobile', 'contact no'], value: caseFile.phone },
+    { patterns: ['income', 'monthly income', 'salary', 'earnings', 'wage'], value: caseFile.income || caseFile.financial },
+    { patterns: ['employ', 'occupation', 'job', 'work'], value: caseFile.employment },
+    { patterns: ['family size', 'family member', 'household', 'number of person'], value: caseFile.children },
+    { patterns: ['sex', 'gender', 'male', 'female'], value: caseFile.sex },
+    { patterns: ['marital', 'married', 'single', 'divorced'], value: caseFile.marital_status },
+    { patterns: ['accommodation', 'housing type', 'type of housing'], value: caseFile.accommodation },
+    { patterns: ['savings', 'asset', 'bank balance', 'deposit'], value: caseFile.savings },
+    { patterns: ['reason', 'cssa reason', 'purpose', 'why'], value: caseFile.cssa_reason },
+    { patterns: ['spouse', 'husband', 'wife', 'partner name'], value: caseFile.spouse_name },
+    { patterns: ['spouse.*id', 'husband.*id', 'partner.*id', 'wife.*id'], value: caseFile.spouse_hkid, isRegex: true },
+    { patterns: ['marriage date', 'date of marriage', 'wed'], value: caseFile.marriage_date },
+    { patterns: ['marriage place', 'place of marriage', 'wed.*place'], value: caseFile.marriage_place },
+    { patterns: ['maintenance', 'alimony', 'allowance'], value: caseFile.maintenance },
+    { patterns: ['date', 'today', 'signed', 'signature date'], value: new Date().toLocaleDateString('en-HK') },
+  ];
+
+  for (const matcher of matchers) {
+    for (const pattern of matcher.patterns) {
+      const test = matcher.isRegex 
+        ? new RegExp(pattern).test(key) 
+        : key.includes(pattern);
+      if (test && matcher.value) return String(matcher.value);
+    }
+  }
+  return null;
+}
+
+// Smart fill: Gemini Vision detects fields → semantic match → fills PDF
+app.post('/api/smart-fill', upload.single('pdf'), async (req, res) => {
+  try {
+    const caseFile = JSON.parse(req.body.caseFile || '{}');
+    let pdfBuffer;
+    let cacheKey;
+
+    if (req.file) {
+      // User uploaded any PDF
+      pdfBuffer = req.file.buffer;
+      cacheKey = req.file.originalname;
+    } else {
+      // Named form from legal_docs
+      const { formType } = req.body;
+      const fileMap = {
+        cssa: 'CSSA_Registration_Form(e)_202302.pdf',
+        marriage_search: 'request for search or marriage records.pdf',
+      };
+      const fileName = fileMap[formType];
+      if (!fileName) return res.status(400).json({ error: 'Unknown formType and no PDF uploaded' });
+      pdfBuffer = await fs.readFile(path.join(process.cwd(), 'legal_docs', fileName));
+      cacheKey = fileName;
+    }
+
+    // Load PDF to get page dimensions
+    const pdfDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
+    const pages = pdfDoc.getPages();
+    const firstPage = pages[0];
+    const { width: pageWidth, height: pageHeight } = firstPage.getSize();
+
+    // Detect fields — use cache to avoid calling Gemini repeatedly
+    let fields;
+    if (fieldPositionCache[cacheKey]) {
+      console.log(`[SmartFill] Using cached fields for ${cacheKey}`);
+      fields = fieldPositionCache[cacheKey];
+    } else {
+      console.log(`[SmartFill] Calling Gemini Vision to analyze ${cacheKey}...`);
+      fields = await detectFieldsWithGemini(pdfBuffer, pageWidth, pageHeight);
+      fieldPositionCache[cacheKey] = fields;
+      console.log(`[SmartFill] Detected ${fields.length} fields, cached.`);
+    }
+
+    // Embed font
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+    // Fill each detected field
+    const filled = [];
+    const skipped = [];
+    for (const field of fields) {
+      const value = matchFieldToCaseFile(field.semantic_key, field.label_text || '', caseFile);
+      if (!value) { skipped.push(field.semantic_key); continue; }
+
+      // Convert from percentage (top-left origin) to pdf-lib points (bottom-left origin)
+      const x = field.x_pct * pageWidth;
+      const y = pageHeight - (field.y_pct * pageHeight) - 10; // -10 to sit on the line
+
+      try {
+        firstPage.drawText(value, { x, y, size: 9, font, color: rgb(0, 0, 0) });
+        filled.push(field.semantic_key);
+      } catch(e) {
+        console.warn(`[SmartFill] Could not draw ${field.semantic_key}:`, e.message);
+      }
+    }
+
+    console.log(`[SmartFill] Filled: ${filled.join(', ')} | Skipped: ${skipped.join(', ')}`);
+
+    const pdfBytes = await pdfDoc.save();
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Zoya_SmartFill_${cacheKey}"`);
+    res.setHeader('X-Fields-Filled', filled.join(','));
+    res.setHeader('X-Fields-Skipped', skipped.join(','));
+    res.send(Buffer.from(pdfBytes));
+
+  } catch (error) {
+    console.error('[SmartFill] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Clear field position cache (useful after uploading a new PDF version)
+app.post('/api/smart-fill/clear-cache', (req, res) => {
+  const { cacheKey } = req.body;
+  if (cacheKey) delete fieldPositionCache[cacheKey];
+  else Object.keys(fieldPositionCache).forEach(k => delete fieldPositionCache[k]);
+  res.json({ cleared: true, remaining: Object.keys(fieldPositionCache) });
+});
+
+// New Endpoint for Local Autofilling (kept for backwards compatibility)
 app.post('/api/fill-known-form', async (req, res) => {
   try {
     const { formType, caseFile } = req.body;
