@@ -21,27 +21,30 @@ export function useShelterData(triggerNotification) {
 	const [shelters, setShelters] = useState(() => sortShelters(initialShelters));
 
 	useEffect(() => {
+		const harmonyHouse = shelters.find(s => s.name === 'Harmony House');
+		if (harmonyHouse && harmonyHouse.status === 'available' && harmonyHouse.waitlist === 0) {
+			// Trigger only once
+			if (!window._harmonyHouseNotified) {
+				toast.success(`${harmonyHouse.name} is now available!`, {
+					toastId: 'harmony-house-available'
+				});
+				triggerNotification("Your plant has bloomed");
+				window._harmonyHouseNotified = true;
+			}
+		}
+	}, [shelters, triggerNotification]);
+
+	useEffect(() => {
 		const timer = setInterval(() => {
 			setShelters(prevShelters => {
 				const harmonyHouse = prevShelters.find(s => s.name === 'Harmony House');
-
 				if (!harmonyHouse || harmonyHouse.status !== 'waitlist' || harmonyHouse.waitlist <= 0) {
 					return prevShelters;
 				}
 
 				const updatedShelters = prevShelters.map(shelter => {
 					if (shelter.name === 'Harmony House') {
-						const newWaitlist = shelter.waitlist - 1;
-
-						if (newWaitlist === 0) {
-							// This will show the toast notification on the dashboard
-							toast.success(`${shelter.name} is now available!`, {
-								toastId: 'harmony-house-available'
-							});
-							// This will trigger the notification for the decoy screen
-							triggerNotification("Your plant has bloomed");
-						}
-
+						const newWaitlist = Math.max(0, shelter.waitlist - 1);
 						return {
 							...shelter,
 							waitlist: newWaitlist,
@@ -56,7 +59,7 @@ export function useShelterData(triggerNotification) {
 		}, 5000);
 
 		return () => clearInterval(timer);
-	}, [triggerNotification]);
+	}, []);
 
 	return shelters;
 }

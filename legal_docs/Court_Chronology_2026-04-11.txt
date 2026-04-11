@@ -1,0 +1,218 @@
+═══════════════════════════════════════════════════════════════
+         INCIDENT CHRONOLOGY — PREPARED FOR LEGAL REVIEW
+═══════════════════════════════════════════════════════════════
+Prepared: 11/04/2026, 10:54:19
+Total Documented Incidents: 15
+Language Detected: en
+Escalation Assessment: No clear escalation pattern detected in frequency.
+
+ABUSE TYPE SUMMARY:
+  • coercive_control: 14 incident(s)
+  • emotional: 11 incident(s)
+  • threats: 5 incident(s)
+  • financial: 4 incident(s)
+  • physical: 3 incident(s)
+
+═══════════════════════════════════════════════════════════════
+                    DETAILED INCIDENT LOG
+═══════════════════════════════════════════════════════════════
+
+INCIDENT 1 — 2024-01-12
+Summary: David controls Mei Lin's movements after dropping the children at school, instructing her to come straight home and not talk to anyone.
+Classification: coercive_control
+Key Indicators: control, isolation, restriction
+Direct Evidence:
+  > "You better come straight home after. Don't talk to anyone."
+
+---
+
+INCIDENT 2 — 2024-01-12
+Summary: David questions Mei Lin's spending, criticizes her for exceeding a budget, and threatens to revoke her access to money and the ATM card.
+Classification: financial, coercive_control
+Key Indicators: financial control, restriction, control, threat
+Direct Evidence:
+  > "Why did you spend $45 at the market? I told you $30 maximum."
+  > "I don't care. You don't get to decide how money is spent. Give me the ATM card back."
+  > "If you can't follow simple rules maybe you shouldn't have access to money at all"
+
+---
+
+INCIDENT 3 — 2024-01-12
+Summary: David questions Mei Lin about talking to her sister, forbids her from contacting her, and aggressively demands her phone.
+Classification: coercive_control, emotional
+Key Indicators: isolation, control, monitoring, restriction, intimidation
+Direct Evidence:
+  > "Who were you talking to on the phone?"
+  > "I told you not to call her. She puts ideas in your head. Give me your phone."
+  > "NOW."
+
+---
+
+INCIDENT 4 — 2024-01-15
+Summary: David verbally abuses Mei Lin, calling her useless, questioning their marriage, and demeaning her worth by stating no one else would want her.
+Classification: emotional
+Key Indicators: insults, humiliation, demeaning, gaslighting
+Direct Evidence:
+  > "The house is a mess. What do you do all day?"
+  > "You're useless. My mother was right about you."
+  > "Sometimes I wonder why I even married you"
+  > "You're lucky I put a roof over your head. No one else would want you."
+
+---
+
+INCIDENT 5 — 2024-01-22
+Summary: David shouts at Mei Lin about dinner, pushes her into a wall causing a bruise on her arm, and then blames her for the physical injury.
+Classification: physical, emotional, coercive_control
+Key Indicators: physical assault, shouting, blame, intimidation, violence
+Direct Evidence:
+  > "Where is my dinner?"
+  > "You think that's acceptable? Leaving cold food?"
+  > "David please stop shouting the children are sleeping"
+  > "Don't tell me what to do in my own house"
+  > "I pay for everything here. You contribute NOTHING."
+  > "You pushed me into the wall"
+  > "You were in my way. Don't be dramatic."
+  > "My arm is bruised"
+  > "That's your own fault. If you listened this wouldn't happen."
+
+---
+
+INCIDENT 6 — 2024-01-28
+Summary: David takes the children's passports, asserting control over their ability to travel, and threatens Mei Lin against leaving.
+Classification: coercive_control, threats
+Key Indicators: control, restriction, threats, isolation
+Direct Evidence:
+  > "I'm taking the kids' passports to my office. For safekeeping."
+  > "Because I said so. Don't question me."
+  > "And don't even think about going anywhere. I'll know."
+
+---
+
+INCIDENT 7 — 2024-01-28
+Summary: David monitors Mei Lin's internet history, discovers she looked at women's shelters, and threatens to prevent her from seeing the children if she attempts to leave, while also demeaning her financial situation.
+Classification: coercive_control, threats, emotional, financial
+Key Indicators: monitoring, threats to children, isolation, financial control, humiliation, intimidation
+Direct Evidence:
+  > "I checked the browser history. Why were you looking at women's shelters?"
+  > "If you try to leave I will make sure you never see the children again."
+  > "No court in Hong Kong will give custody to an unemployed woman with no money."
+  > "You have nothing without me. Remember that."
+
+---
+
+INCIDENT 8 — 2024-02-03
+Summary: David cancels Mei Lin's Octopus card, restricting her movement, and changes the wifi password, further controlling her access to resources and communication.
+Classification: financial, coercive_control
+Key Indicators: financial control, isolation, restriction, control
+Direct Evidence:
+  > "I cancelled your Octopus card. You don't need to go anywhere."
+  > "How am I supposed to take the kids to school?"
+  > "I'll drive them. You stay home."
+  > "And I changed the wifi password. Ask me if you need it."
+
+---
+
+INCIDENT 9 — 2024-02-03
+Summary: David questions Mei Lin about talking to a neighbor and threatens her with unspecified consequences if she 'embarrasses' him, implying surveillance and control over her social interactions.
+Classification: coercive_control, threats, emotional
+Key Indicators: monitoring, isolation, threats, intimidation, control
+Direct Evidence:
+  > "I saw you talking to the neighbour Mrs. Lee today."
+  > "What did you tell her?"
+  > "If I find out you've been telling people our business I swear to god Mei Lin"
+  > "You know what happens when you embarrass me"
+
+---
+
+INCIDENT 10 — 2024-02-10
+Summary: David wakes Mei Lin up in the middle of the night, ignoring her pleas about the children, to 'talk about her attitude,' and threatens her with worsening conditions if she doesn't show him 'respect.'
+Classification: emotional, coercive_control, threats
+Key Indicators: intimidation, control, threats, sleep deprivation, disrespect
+Direct Evidence:
+  > "Wake up."
+  > "I said WAKE UP"
+  > "You think you can just ignore me?"
+  > "Please David it's 2am the children"
+  > "I don't care. We need to talk about your attitude."
+  > "If you don't start showing me some respect things are going to get much worse"
+  > "I'm warning you Mei Lin. Don't test me."
+
+---
+
+INCIDENT 11 — 2024-02-15
+Summary: David contacts Mei Lin's sister to prevent contact, asserts control over Mei Lin's social interactions, demands her phone password, and then physically damages her phone, mocking her lack of financial independence.
+Classification: coercive_control, emotional, financial, physical
+Key Indicators: isolation, control, financial control, physical damage, humiliation, intimidation
+Direct Evidence:
+  > "I called your sister and told her not to contact you anymore."
+  > "I have every right. I'm your husband. I decide who you talk to."
+  > "Your family is toxic. They're turning you against me."
+  > "From now on all calls go through me. Give me your phone password."
+  > "That wasn't a question."
+  > "You just threw my phone at the wall"
+  > "The screen is cracked"
+  > "Get a new one then. Oh wait, you can't. You have no money. 😂"
+
+---
+
+INCIDENT 12 — 2024-02-20
+Summary: David removes Mei Lin as an emergency contact at the children's school, further isolating her and undermining her parental role.
+Classification: coercive_control, emotional
+Key Indicators: isolation, control, parental alienation, undermining
+Direct Evidence:
+  > "I told the school I'm the only emergency contact now. Your name has been removed."
+  > "You can't do that"
+  > "Already done. Try me."
+
+---
+
+INCIDENT 13 — 2024-02-20
+Summary: David physically assaults Mei Lin, causing her lip to bleed, in front of the children, and blames her for the incident, using it as a lesson for the children.
+Classification: physical, emotional, coercive_control
+Key Indicators: physical assault, violence, child exposure to violence, blame, intimidation
+Direct Evidence:
+  > "Dinner was cold again."
+  > "David stop please you're hurting me"
+  > "The children are watching"
+  > "Then maybe they'll learn what happens when someone doesn't listen"
+  > "I'm bleeding from my lip"
+  > "Put ice on it. And clean up the kitchen."
+
+---
+
+INCIDENT 14 — 2024-02-25
+Summary: David installs cameras inside the flat to monitor Mei Lin, asserting control over her privacy and movements, and then uses the cameras to question her activities.
+Classification: coercive_control, emotional
+Key Indicators: monitoring, surveillance, privacy invasion, control, intimidation
+Direct Evidence:
+  > "I'm installing cameras in the flat. For security."
+  > "It's my flat. I'll do what I want."
+  > "Now I can check on you from my office. Isn't that nice?"
+  > "I see you left the flat at 2:15pm. Where did you go?"
+  > "That took 12 minutes. The bin is 2 minutes away."
+  > "Don't lie to me Mei Lin. I'm watching."
+
+---
+
+INCIDENT 15 — 2024-03-01
+Summary: David threatens self-harm and blames Mei Lin for potential family destruction if she tries to leave, then uses manipulative language about love and family to control her behavior.
+Classification: threats, emotional, coercive_control
+Key Indicators: threats of self-harm, manipulation, guilt-tripping, emotional blackmail, control
+Direct Evidence:
+  > "If you ever try to leave me I will kill myself and it will be your fault"
+  > "The children will grow up knowing their mother destroyed this family"
+  > "Is that what you want?"
+  > "Please don't say things like that"
+  > "Then behave. Simple."
+  > "I love you. You know that right? Everything I do is because I love you."
+  > "We're a family. Families stick together."
+  > "Just be a good wife and everything will be fine."
+
+---
+
+═══════════════════════════════════════════════════════════════
+DISCLAIMER: This chronology is a documentation aid generated
+from chat records. It is not legal advice. All quotes are
+extracted verbatim from the source conversation.
+Consult qualified DV services for formal legal guidance.
+═══════════════════════════════════════════════════════════════

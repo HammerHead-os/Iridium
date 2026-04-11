@@ -3,6 +3,7 @@ import cors from 'cors';
 import multer from 'multer';
 import dotenv from 'dotenv';
 import { VertexAI, HarmCategory, HarmBlockThreshold } from '@google-cloud/vertexai';
+
 // Lazy-load Document AI only when needed
 let documentClient = null;
 async function getDocumentClient() {
@@ -22,6 +23,10 @@ import Docxtemplater from 'docxtemplater';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+const execAsync = promisify(exec);
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,7 +35,12 @@ dotenv.config();
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+
+// Ensure local vault directory exists for storage
+const vaultDir = path.join(__dirname, 'legal_docs', 'vault');
+fs.mkdir(vaultDir, { recursive: true }).catch(console.error);
+app.use('/vault', express.static(vaultDir));
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -147,6 +157,412 @@ function getDefaultFields(formType) {
   }
   return [];
 }
+
+// ===== FILL-TEMPLATE: overlay case data onto the actual government PDF forms =====
+// Strategy: sips (macOS built-in) renders the PDF to PNG, bypassing pdf-lib's
+// inability to parse corrupted xref tables. Anvil then generates a new PDF
+// with the original form as a full-page background and case data text precisely
+// overlaid using the calibrated getDefaultFields() coordinates.
+
+async function pdfToBase64PNG(pdfPath) {
+  const tmpPng = path.join(process.cwd(), 'legal_docs', `_tmp_${Date.now()}.png`);
+  try {
+    // sips uses macOS CoreGraphics — handles corrupted/legacy PDFs reliably
+    await execAsync(`sips --setProperty format png "${pdfPath}" --out "${tmpPng}"`);
+    const buf = await fs.readFile(tmpPng);
+    return buf.toString('base64');
+  } finally {
+    await fs.unlink(tmpPng).catch(() => {});
+  }
+}
+
+// PDF page dimensions in points — A4
+const PDF_W = 595.32;
+const PDF_H = 841.92;
+
+// Convert pdf-lib coords (x, y from BOTTOM-LEFT in points) to CSS % (from TOP-LEFT)
+function toCSS(x, y) {
+  return {
+    left: `${((x / PDF_W) * 100).toFixed(2)}%`,
+    top:  `${(((PDF_H - y - 9) / PDF_H) * 100).toFixed(2)}%`,  // -9 ≈ font cap height
+  };
+}
+
+function buildOverlayHtml(formType, caseFile, base64Png) {
+  const fields = getDefaultFields(formType);
+  const valueMap = {
+    name:          caseFile.name,
+    hkid:          caseFile.hkid,
+    dob:           caseFile.dob,
+    address:       caseFile.address,
+    employment:    caseFile.employment,
+    income:        caseFile.income || caseFile.financial,
+    phone:         caseFile.phone,
+    family_size:   caseFile.children,
+    date:          caseFile.dob || new Date().toLocaleDateString('en-HK'),
+    spouse_name:   caseFile.spouse_name,
+    spouse_hkid:   caseFile.spouse_hkid,
+    marriage_date: caseFile.marriage_date,
+    marriage_place:caseFile.marriage_place,
+  };
+
+  const overlayItems = fields
+    .map(f => {
+      const value = valueMap[f.label];
+      if (!value) return '';
+      const { left, top } = toCSS(f.x, f.y);
+      return `<span class="field" style="left:${left};top:${top}">${String(value).replace(/</g,'&lt;')}</span>`;
+    })
+    .join('\n');
+
+  return {
+    html: `
+      <div class="page">
+        <img class="bg" src="data:image/png;base64,${base64Png}" />
+        ${overlayItems}
+      </div>`,
+    css: `
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { width: ${PDF_W}pt; height: ${PDF_H}pt; overflow: hidden; }
+      .page { position: relative; width: ${PDF_W}pt; height: ${PDF_H}pt; }
+      .bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+      .field {
+        position: absolute;
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 9pt;
+        color: #000;
+        white-space: nowrap;
+        line-height: 1;
+      }
+    `,
+  };
+}
+
+app.post('/api/fill-template', async (req, res) => {
+  try {
+    const { formType, caseFile } = req.body;
+    const apiKey = process.env.ANVIL_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: 'ANVIL_API_KEY not set in .env' });
+
+    const fileMap = {
+      cssa:            'CSSA_Registration_Form(e)_202302.pdf',
+      marriage_search: 'request for search or marriage records.pdf',
+    };
+    const fileName = fileMap[formType];
+    if (!fileName) return res.status(400).json({ error: 'Unknown formType' });
+
+    const pdfPath = path.join(process.cwd(), 'legal_docs', fileName);
+
+    console.log(`[FillTemplate] Converting ${fileName} to PNG via sips...`);
+    let base64Png;
+    try {
+      base64Png = await pdfToBase64PNG(pdfPath);
+    } catch(e) {
+      return res.status(500).json({ error: `PDF→PNG conversion failed: ${e.message}. Ensure sips is available (macOS).` });
+    }
+
+    const { html, css } = buildOverlayHtml(formType, caseFile, base64Png);
+
+    console.log(`[FillTemplate] Sending to Anvil for PDF rendering...`);
+    const anvilRes = await fetch('https://app.useanvil.com/api/v1/generate-pdf', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Basic ' + Buffer.from(`${apiKey}:`).toString('base64'),
+        'Accept': 'application/pdf',
+      },
+      body: JSON.stringify({
+        title: `Zoya — ${formType} filled form`,
+        type: 'html',
+        page: {
+          width: `${PDF_W}pt`,
+          height: `${PDF_H}pt`,
+          margin: '0',
+        },
+        data: { html, css },
+      }),
+    });
+
+    if (!anvilRes.ok) {
+      const errText = await anvilRes.text();
+      return res.status(anvilRes.status).json({ error: `Anvil error: ${errText.slice(0, 200)}` });
+    }
+
+    const pdfBuffer = Buffer.from(await anvilRes.arrayBuffer());
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Zoya_Filled_${fileName}"`);
+    res.send(pdfBuffer);
+
+    console.log(`[FillTemplate] Done — ${pdfBuffer.length} bytes returned.`);
+  } catch(err) {
+    console.error('[FillTemplate] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== AGENT: FETCH LIVE PDF INTO ZOYA =====
+app.post('/api/agent/fetch-doc', async (req, res) => {
+  try {
+    const { url, docId } = req.body;
+    if (!url || !docId) return res.status(400).json({ error: 'Missing url or docId' });
+
+    console.log(`[Fetch Agent] Agent fetching document from ${url}...`);
+    const fetchRes = await fetch(url);
+    
+    if (!fetchRes.ok) {
+      return res.status(fetchRes.status).json({ error: `Agent failed to fetch: ${fetchRes.statusText}` });
+    }
+
+    const buffer = await fetchRes.arrayBuffer();
+    const fileName = `${docId}_fetched_${Date.now()}.pdf`;
+    const savePath = path.join(process.cwd(), 'legal_docs', fileName);
+
+    await fs.writeFile(savePath, Buffer.from(buffer));
+    console.log(`[Fetch Agent] Successfully saved to ${savePath}`);
+
+    // Return the relative URL so the frontend can download/preview it from the server
+    // Since we're not serving legal_docs statically directly, we can just send the file back immediately as an attachment.
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${docId}_Official.pdf"`);
+    res.send(Buffer.from(buffer));
+
+  } catch (error) {
+    console.error('[Fetch Agent] Autonomy error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/* ===== SECURE VAULT ENDPOINTS ===== */
+app.post('/api/vault/analyze', async (req, res) => {
+  try {
+    const { imageBase64, mimeType, contextText } = req.body;
+    if (!imageBase64) return res.status(400).json({ error: 'Missing imageBase64' });
+
+    // No AI processing needed for the vault ingestion stream anymore. 
+    // We just take the user's description.
+    const analysis = contextText || 'User-provided photograph evidence.';
+
+    // Permanently persist the image to the local Node vault directory
+    const buffer = Buffer.from(imageBase64, 'base64');
+    let ext = '.jpg';
+    if (mimeType?.includes('png')) ext = '.png';
+    else if (mimeType?.includes('pdf')) ext = '.pdf';
+    
+    const fileName = `evidence_${Date.now()}_${Math.random().toString(36).substring(2,8)}${ext}`;
+    const filePath = path.join(vaultDir, fileName);
+    await fs.writeFile(filePath, buffer);
+    
+    // Serve the image via the static vault route
+    const storageUrl = `http://localhost:3001/vault/${fileName}`;
+
+    res.json({ analysis: analysis.trim(), storageUrl });
+  } catch (error) {
+    console.error('[Vault Analyze] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/agent/compile-case-package', async (req, res) => {
+  try {
+    const { vaultItems = [], messages = [], caseFile = {}, whatsappTimeline = null } = req.body;
+    const textGenModel = vertexAI.preview.getGenerativeModel({ model: textModel, generationConfig: { temperature: 0.1 } });
+
+    // Stringify the memory context
+    // 1. FILTER: We EXCLUDE the virtual 'TXT LOG' items from the Forensic Evidence manifest.
+    // This forces the LLM to use the curated 'EXTRACTED WHATSAPP CHRONOLOGY' block instead of 
+    // seeing a generic "txt file" in the vault and writing "content to be reviewed".
+    const physicalEvidence = vaultItems.filter(item => 
+      !item.dataUrl.startsWith('data:image/svg+xml') && 
+      !item.analysis.toLowerCase().includes('extracted')
+    );
+    
+    const evidenceContext = physicalEvidence.map((item, idx) => `Evidence Item ${idx+1}:
+- Victim Context: ${item.contextText}
+- Forensic Finding: ${item.analysis}
+- REFERENCE_URL: ${item.dataUrl}`).join('\n\n');
+
+    const chatContext = messages.filter(m => m.role === 'user' || m.role === 'agent').map(m => `${m.role.toUpperCase()}: ${m.text}`).join('\n');
+    const profileContext = JSON.stringify(caseFile, null, 2);
+    
+    let timelineContext = 'NO EXTERNAL CHAT EXPORT DATA PROVIDED.';
+    if (whatsappTimeline && whatsappTimeline.timeline && whatsappTimeline.timeline.length > 0) {
+      timelineContext = whatsappTimeline.timeline.map(t => {
+        const types = Array.isArray(t.abuse_types) ? t.abuse_types.join(', ') : 'unknown';
+        const msg = (t.quotes && t.quotes[0]) ? t.quotes[0] : (t.message || 'Verbatim quote missing');
+        return `DANGER EVENT [Date: ${t.date || 'Undated'}]:
+    THREAT CLASSIFICATION: ${types.toUpperCase()}
+    INCIDENT SUMMARY: ${t.summary || 'No summary provided.'}
+    VERBATIM QUOTE: "${msg}"`;
+      }).join('\n---\n');
+    }
+
+    const masterContext = `
+[SYSTEM MEMORY: LEGAL CASEFILE]
+
+=== SECTION 1: VICTIM PROFILE ===
+${profileContext}
+
+=== SECTION 2: HIGH-FIDELITY CHAT CHRONOLOGY (PRIMARY LEGAL EVIDENCE) ===
+${timelineContext}
+
+=== SECTION 3: RECENT CHAT WITH ZOYA ===
+${chatContext}
+
+=== SECTION 4: FORENSIC VAULT (PHOTOS/SCAN ATTACHMENTS) ===
+${evidenceContext}
+`;
+
+    // Agent 1: Injunction Letter Prompter
+    const pInjunction = textGenModel.generateContent({
+      contents: [{ role: 'user', parts: [{ text: `
+You are drafting a formal Domestic Violence Injunction Affidavit (Non-Molestation / Ouster Order) for Hong Kong Courts.
+MANDATORY FAIL-SAFE: The very first line of your output MUST be a centered <h1> title: "AFFIDAVIT OF [APPLICANT NAME]". DO NOT FORGET THE TITLE.
+
+Using the memory context below, draft a highly formal, legal affidavit in HTML. 
+DO NOT INCLUDE RAW "LOCALHOST" URLS. 
+Refer to evidence as "Exhibit [Number]".
+Focus heavily on the specific dates and verbatim messages described in 'SECTION 2: HIGH-FIDELITY CHAT CHRONOLOGY'. These are your primary forensic proof.
+
+MEMORY STATE:
+${masterContext}
+`}]}]
+    });
+
+    // Agent 2: Chronology Prompter
+    const pChronology = textGenModel.generateContent({
+      contents: [{ role: 'user', parts: [{ text: `
+You are an objective legal compiler generating a Court Chronology of Abuse for Hong Kong Family Court.
+YOUR OUTPUT MUST START WITH: <h1 style="text-align:center;">STATUTORY CHRONOLOGY OF EVENTS</h1>
+
+Using ONLY SECTION 2, SECTION 3, and SECTION 4, generate a chronological HTML table.
+Table Columns: [Date/Time], [Incident Description], [Reference].
+
+COLUMN MAPPING RULES:
+1. [Date/Time]: Use the date provided in the "DANGER EVENT" block.
+2. [Incident Description]: Combine the "THREAT CLASSIFICATION" with the "INCIDENT SUMMARY" provided in high-fidelity chronology. 
+   Example: "COERCIVE CONTROL: Respondent monitored Applicant's phone and threatened to restrict her movement."
+3. [Reference]: You MUST use the "VERBATIM QUOTE" text. Do not summarize it. Write it exactly.
+
+MEMORY STATE:
+${masterContext}
+`}]}]
+    });
+
+    // Agent 3: Case Pack Manifest Prompter
+    const pCasePack = textGenModel.generateContent({
+      contents: [{ role: 'user', parts: [{ text: `
+You are generating the "Master Evidence Case Pack" manifest.
+MANDATORY FAIL-SAFE: The very first line of your output MUST be a centered <h1> title: "MASTER EVIDENCE CASE PACK MANIFEST". DO NOT FORGET THE TITLE.
+
+Format as a professional Legal Brief overview using ONLY formatted HTML tags.
+CRITICAL INSTRUCTION: When mentioning a photo/document FROM 'SECTION 4', you MUST embed the image using an <img> tag.
+DO NOT PRINT THE URL AS TEXT. ONLY USE IT IN THE SRC ATTRIBUTE of the <img> tag.
+MEMORY STATE:
+${masterContext}
+`}]}]
+    });
+
+    // Wait for all 3 agents to finish compiling simultaneously
+    const [injunctionRes, chronologyRes, packRes] = await Promise.all([pInjunction, pChronology, pCasePack]);
+
+    const getResText = (r) => {
+      const text = r.response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      return text.trim();
+    };
+
+    // Forcefully strip Gemini's stubborn conversational markdown blocks and convert native markdown to standard HTML tags
+    const parseMarkdownToHTML = (text) => {
+      if (!text) return '';
+      
+      const tableStyles = `
+        <style>
+          table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.85rem; }
+          th, td { border: 1px solid #e2e8f0; padding: 10px; text-align: left; vertical-align: top; }
+          th { background-color: #f8fafc; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; }
+          tr:nth-child(even) { background-color: #fcfcfc; }
+        </style>
+      `;
+
+      // Strip starting/ending markdown blocks and trim leading/trailing whitespace
+      let html = text.replace(/```(markdown|html)?\n/gi, '').replace(/```/g, '').trim();
+      
+      // COLLAPSE EXCESS NEWLINES: Replace clusters of 3+ newlines with just 2 newlines
+      html = html.replace(/\n{3,}/g, '\n\n');
+
+      html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+      html = html.replace(/\*(.*?)\*/g, '<i>$1</i>');
+      html = html.replace(/^### (.*$)/gim, '<h3 style="margin-top:0; margin-bottom:5px; font-family:Outfit, sans-serif;">$1</h3>');
+      html = html.replace(/^## (.*$)/gim, '<h2 style="margin-top:0; margin-bottom:10px; font-size:1.1rem; color:#1e293b; font-family:Outfit, sans-serif;">$1</h2>');
+      html = html.replace(/^# (.*$)/gim, '<h1 style="margin-top:0; margin-bottom:15px; font-size:1.3rem; color:#0f172a; text-transform:uppercase; font-family:Outfit, sans-serif; text-align:center;">$1</h1>');
+      
+      // Convert remaining newlines into structured elements
+      // We protect HTML blocks (tables, headers, lists) from being wrapped in redundant <br/> tags
+      html = html.split('\n\n').map(p => {
+        const trimmed = p.trim();
+        if (!trimmed) return '';
+        
+        // If it looks like a block-level HTML element, don't wrap it or inject <br/>
+        if (trimmed.startsWith('<h') || trimmed.startsWith('<table') || trimmed.startsWith('<ul') || trimmed.startsWith('<ol') || trimmed.startsWith('<div')) {
+           return trimmed;
+        }
+        
+        // Only wrap plain text blocks
+        return `<div style="margin-bottom:12px;">${trimmed.replace(/\n/g, '<br/>')}</div>`;
+      }).join('');
+      
+      return tableStyles + html;
+    };
+
+    res.json({
+      injunction: parseMarkdownToHTML(getResText(injunctionRes)),
+      chronology: parseMarkdownToHTML(getResText(chronologyRes)),
+      casePack:    parseMarkdownToHTML(getResText(packRes))
+    });
+  } catch (error) {
+    console.error('[Compile Package] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/agent/draft-official-form', async (req, res) => {
+  try {
+    const { docId, caseFile } = req.body;
+    if (!docId) return res.status(400).json({ error: 'Missing docId' });
+
+    const textGenModel = vertexAI.preview.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { temperature: 0.2 } });
+
+    console.log(`[Draft Form] Gemini drafting secure ephemeral HTML form for ${docId}...`);
+    
+    let formName = docId;
+    if (docId === 'cssa') formName = 'Comprehensive Social Security Assistance (CSSA) Scheme Application';
+    else if (docId === 'legal_aid') formName = 'Legal Aid Pre-application Information Form';
+    else if (docId === 'housing') formName = 'Public Rental Housing Application';
+    else if (docId === 'marriage') formName = 'Search for Marriage Record (Form MR35)';
+
+    const prompt = `You are a legal forms processing agent.
+Your task is to generate an interactive, clean HTML representation of the formal Hong Kong "${formName}".
+It must NOT look like conversational text. It must look like a physical paper form converted to HTML.
+Use <h1>, <h2>, <p>, <b>, and layout it formally. 
+CRITICAL: Visually pre-fill the form using the user's data below where applicable. If data is unknown, insert blank underlines ______.
+
+User Data:
+${JSON.stringify(caseFile || {}, null, 2)}
+
+OUTPUT ONLY VALID HTML WITHOUT ANY MARKDOWN (NO \`\`\`html).`;
+
+    const generated = await textGenModel.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }]
+    });
+
+    let html = generated.response.candidates[0].content.parts[0].text;
+    html = html.replace(/```(html|markdown)?\n/gi, '').replace(/```/g, '');
+
+    res.json({ html, title: formName });
+  } catch (error) {
+    console.error('[Draft Form] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 async function extractFieldsUsingTextAnalysis(formType) {
   // For now, return default positions - can be enhanced with actual PDF text extraction
@@ -413,8 +829,9 @@ CRITICAL: Extract ALL facts from the ENTIRE conversation history. If she said he
 });
 
 // ===== GEMINI VISION SMART FILL =====
-// Cache so Gemini is only called once per form file (keyed by filename)
+// Cache cleared on each server start so prompt changes take effect immediately
 const fieldPositionCache = {};
+const SMART_FILL_DEBUG = process.env.SMART_FILL_DEBUG === 'true';
 
 // Ask Gemini Vision to read the PDF and return field positions as percentages
 async function detectFieldsWithGemini(pdfBuffer, pageWidth, pageHeight) {
@@ -425,24 +842,29 @@ async function detectFieldsWithGemini(pdfBuffer, pageWidth, pageHeight) {
     generationConfig: { responseMimeType: 'application/json' },
   });
 
-  const prompt = `You are a form-analysis agent. This is a government PDF form.
+  const prompt = `You are a precise form-field locator agent. Analyze this government PDF form.
 
-Identify every blank fillable field where a person would write their information (name, ID, date, address, phone, income, signature areas, checkboxes, etc.).
+Your ONLY job: find every blank space where a person writes their answer.
 
-For EACH field return:
-- "semantic_key": A snake_case key describing what data goes here (e.g. "applicant_name", "hkid_number", "date_of_birth", "monthly_income", "home_address", "phone_number", "spouse_name", "marriage_date", "number_of_children")
-- "label_text": The exact printed label text next to this field on the form
-- "x_pct": X coordinate of where to START writing, as a decimal 0.0-1.0 (proportion of page width from left)
-- "y_pct": Y coordinate from TOP of page, as a decimal 0.0-1.0 (proportion of page height)
-- "field_type": "text" | "date" | "checkbox" | "number"
+For each blank field, return:
+- "semantic_key": snake_case label (e.g. "applicant_name", "hkid_number", "date_of_birth", "home_address", "phone_number", "monthly_income", "employment", "spouse_name", "marriage_date", "number_of_children")
+- "label_text": the exact printed label adjacent to this blank
+- "x_pct": proportion of PAGE WIDTH (0.0=left edge, 1.0=right edge) for where to BEGIN writing the answer — this should be INSIDE the blank box or on the blank line, NOT at the label
+- "y_pct": proportion of PAGE HEIGHT from TOP (0.0=top, 1.0=bottom) for the VERTICAL CENTRE of the blank line/box
+- "field_type": "text" | "date" | "number" | "checkbox"
 
-Rules:
-- Page dimensions are ${Math.round(pageWidth)}x${Math.round(pageHeight)} points
-- Return ONLY fields that need user input — skip printed text, headings, instructions
-- x_pct and y_pct should point to where the ANSWER should be written (just after or below the label)
-- Be precise. Small errors cause text to land outside the field.
+CRITICAL positioning rules:
+1. x_pct must point INSIDE the blank area — if the label is on the left and the blank is to the right, x_pct should be where the blank starts (right side)
+2. y_pct must point to the CENTRE of the blank line/box — not the label, not above/below it
+3. The page is ${Math.round(pageWidth)} points wide × ${Math.round(pageHeight)} points tall
+4. Only include fields that need user-provided data
+5. Skip headers, instructions, section titles, page numbers
 
-Return a JSON array: [{"semantic_key":"...","label_text":"...","x_pct":0.0,"y_pct":0.0,"field_type":"text"}, ...]`;
+Example: For a row that looks like "Date of Birth: [__________]", if the blank box starts at 40% from left and is at 15% from top:
+  {"semantic_key":"date_of_birth","label_text":"Date of Birth","x_pct":0.42,"y_pct":0.15,"field_type":"date"}
+
+Return ONLY a JSON array, no markdown, no explanation:
+[{"semantic_key":"...","label_text":"...","x_pct":0.0,"y_pct":0.0,"field_type":"text"}, ...]`;
 
   const result = await model.generateContent({
     contents: [{
@@ -555,12 +977,24 @@ app.post('/api/smart-fill', upload.single('pdf'), async (req, res) => {
       const value = matchFieldToCaseFile(field.semantic_key, field.label_text || '', caseFile);
       if (!value) { skipped.push(field.semantic_key); continue; }
 
-      // Convert from percentage (top-left origin) to pdf-lib points (bottom-left origin)
+      // Convert from percentage + top-left origin → pdf-lib bottom-left points
+      // y_pct=0 is top of page, y_pct=1 is bottom
+      // pdf-lib y=0 is bottom, y=pageHeight is top
+      // We subtract 3 (half text cap height for 9pt font) so text sits centred on the line
       const x = field.x_pct * pageWidth;
-      const y = pageHeight - (field.y_pct * pageHeight) - 10; // -10 to sit on the line
+      const y = pageHeight - (field.y_pct * pageHeight) - 3;
+
+      // Clamp to page bounds
+      const safeX = Math.max(5, Math.min(x, pageWidth - 50));
+      const safeY = Math.max(5, Math.min(y, pageHeight - 10));
+
+      if (SMART_FILL_DEBUG) {
+        // Draw a small red dot at the target position for visual debugging
+        firstPage.drawCircle({ x: safeX, y: safeY, size: 3, color: rgb(1, 0, 0) });
+      }
 
       try {
-        firstPage.drawText(value, { x, y, size: 9, font, color: rgb(0, 0, 0) });
+        firstPage.drawText(value, { x: safeX, y: safeY, size: 9, font, color: rgb(0, 0, 0) });
         filled.push(field.semantic_key);
       } catch(e) {
         console.warn(`[SmartFill] Could not draw ${field.semantic_key}:`, e.message);
@@ -582,12 +1016,297 @@ app.post('/api/smart-fill', upload.single('pdf'), async (req, res) => {
   }
 });
 
-// Clear field position cache (useful after uploading a new PDF version)
+// Clear field position cache
 app.post('/api/smart-fill/clear-cache', (req, res) => {
   const { cacheKey } = req.body;
   if (cacheKey) delete fieldPositionCache[cacheKey];
   else Object.keys(fieldPositionCache).forEach(k => delete fieldPositionCache[k]);
   res.json({ cleared: true, remaining: Object.keys(fieldPositionCache) });
+});
+
+// Debug endpoint: returns PDF with RED DOTS at every Gemini-detected field position
+// Use this to visually verify coordinate accuracy before filling
+app.post('/api/smart-fill/debug', upload.single('pdf'), async (req, res) => {
+  try {
+    let pdfBuffer, cacheKey;
+    if (req.file) {
+      pdfBuffer = req.file.buffer; cacheKey = req.file.originalname;
+    } else {
+      const { formType } = req.body;
+      const fileMap = { cssa: 'CSSA_Registration_Form(e)_202302.pdf', marriage_search: 'request for search or marriage records.pdf' };
+      const fileName = fileMap[formType];
+      if (!fileName) return res.status(400).json({ error: 'Unknown formType' });
+      pdfBuffer = await fs.readFile(path.join(process.cwd(), 'legal_docs', fileName));
+      cacheKey = fileName;
+    }
+
+    const pdfDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
+    const firstPage = pdfDoc.getPages()[0];
+    const { width: pageWidth, height: pageHeight } = firstPage.getSize();
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+    // Always re-detect (ignore cache) so debug reflects latest prompt
+    console.log(`[SmartFill/Debug] Re-running Gemini Vision on ${cacheKey}...`);
+    const fields = await detectFieldsWithGemini(pdfBuffer, pageWidth, pageHeight);
+    // Update cache with latest
+    fieldPositionCache[cacheKey] = fields;
+
+    // Draw a RED CIRCLE + label at each detected field position
+    for (const field of fields) {
+      const x = field.x_pct * pageWidth;
+      const y = pageHeight - (field.y_pct * pageHeight) - 3;
+      const safeX = Math.max(5, Math.min(x, pageWidth - 50));
+      const safeY = Math.max(5, Math.min(y, pageHeight - 10));
+
+      // Red dot
+      firstPage.drawCircle({ x: safeX, y: safeY + 4, size: 5, color: rgb(1, 0, 0) });
+      // Field label in red
+      firstPage.drawText(field.semantic_key, {
+        x: Math.max(5, safeX - 20), y: safeY + 8,
+        size: 6, font, color: rgb(0.9, 0, 0)
+      });
+    }
+
+    const debugBytes = await pdfDoc.save();
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="DEBUG_${cacheKey}"`);
+    res.setHeader('X-Field-Count', fields.length);
+    res.setHeader('X-Fields', fields.map(f => f.semantic_key).join(','));
+    res.send(Buffer.from(debugBytes));
+  } catch(e) {
+    console.error('[SmartFill/Debug] Error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ===== ANVIL FORM FILL =====
+// Generates pixel-perfect PDFs using Anvil's HTML→PDF API.
+// No coordinate guessing — we build the form as HTML and Anvil renders it.
+
+function buildCSSAHtml(cf) {
+  const field = (label, value) => `
+    <tr>
+      <td class="label">${label}</td>
+      <td class="value">${value || '<span class="empty">—</span>'}</td>
+    </tr>`;
+
+  return {
+    html: `
+    <div class="header">
+      <div class="logo-area">
+        <div class="logo-text">SWD</div>
+        <div class="logo-sub">Social Welfare Department</div>
+      </div>
+      <div class="title-area">
+        <h1>Comprehensive Social Security Assistance</h1>
+        <h2>Application Form (CSSA)</h2>
+        <p class="subtitle">Prepared by Zoya Advocate AI · ${new Date().toLocaleDateString('en-HK')}</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>PART A — PERSONAL PARTICULARS</h3>
+      <table>${[
+        field('Full Name (English)', cf.name),
+        field('Hong Kong Identity Card No.', cf.hkid),
+        field('Date of Birth', cf.dob),
+        field('Sex', cf.sex),
+        field('Marital Status', cf.marital_status),
+        field('Residential Address', cf.address),
+        field('Contact Phone Number', cf.phone),
+      ].join('')}</table>
+    </div>
+
+    <div class="section">
+      <h3>PART B — HOUSEHOLD INFORMATION</h3>
+      <table>${[
+        field('Number of Household Members', cf.children),
+        field('Accommodation Type', cf.accommodation),
+        field('Monthly Rent / Housing Cost', cf.rent),
+      ].join('')}</table>
+    </div>
+
+    <div class="section">
+      <h3>PART C — FINANCIAL CIRCUMSTANCES</h3>
+      <table>${[
+        field('Monthly Income / Employment', cf.income || cf.financial),
+        field('Employment Status', cf.employment),
+        field('Total Assets / Savings', cf.savings),
+        field('Monthly Maintenance Received', cf.maintenance),
+        field('Reason for CSSA Application', cf.cssa_reason || 'Domestic violence — leaving abusive household'),
+      ].join('')}</table>
+    </div>
+
+    <div class="section declaration">
+      <h3>DECLARATION</h3>
+      <p>I declare that the information given in this application is true and correct to the best of my knowledge and belief. I understand that any false information may render me liable to prosecution.</p>
+      <div class="sig-row">
+        <div class="sig-box">
+          <div class="sig-line"></div>
+          <div class="sig-label">Signature of Applicant</div>
+        </div>
+        <div class="sig-box">
+          <div class="sig-line">${new Date().toLocaleDateString('en-HK')}</div>
+          <div class="sig-label">Date</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>For official use only · Social Welfare Department · Hong Kong SAR Government</p>
+      <p>Confidential — prepared by Zoya Advocate AI · Do not distribute</p>
+    </div>`,
+    css: `
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+      body { font-family: 'Inter', 'Noto Sans', 'Noto CJK', sans-serif; font-size: 11px; color: #1e293b; margin: 0; }
+      .header { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 20px; border-bottom: 3px solid #8b6f5c; padding-bottom: 14px; }
+      .logo-area { background: #8b6f5c; color: white; padding: 10px 14px; border-radius: 8px; text-align: center; min-width: 60px; }
+      .logo-text { font-size: 20px; font-weight: 700; }
+      .logo-sub { font-size: 7px; margin-top: 2px; opacity: 0.85; }
+      .title-area h1 { margin: 0 0 2px; font-size: 16px; color: #8b6f5c; }
+      .title-area h2 { margin: 0 0 4px; font-size: 12px; color: #64748b; font-weight: 600; }
+      .subtitle { margin: 0; font-size: 9px; color: #94a3b8; }
+      .section { margin-bottom: 18px; }
+      .section h3 { font-size: 10px; font-weight: 700; color: #8b6f5c; border-bottom: 1px solid #e2ddd5; padding-bottom: 4px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.8px; }
+      table { width: 100%; border-collapse: collapse; }
+      td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; font-size: 11px; }
+      td.label { width: 40%; color: #64748b; font-weight: 600; }
+      td.value { color: #1e293b; font-weight: 400; }
+      .empty { color: #cbd5e1; font-style: italic; }
+      .declaration { background: #fafaf9; border: 1px solid #e2ddd5; border-radius: 8px; padding: 14px; }
+      .declaration p { line-height: 1.6; color: #475569; margin: 0 0 14px; }
+      .sig-row { display: flex; gap: 40px; margin-top: 20px; }
+      .sig-box { flex: 1; }
+      .sig-line { border-bottom: 1px solid #334155; height: 28px; font-size: 11px; padding-bottom: 4px; color: #1e293b; }
+      .sig-label { font-size: 9px; color: #94a3b8; margin-top: 4px; }
+      .footer { border-top: 1px solid #e2e8f0; padding-top: 8px; text-align: center; color: #94a3b8; font-size: 8px; }
+      .footer p { margin: 2px 0; }
+    `
+  };
+}
+
+function buildMarriageHtml(cf) {
+  const field = (label, value) => `
+    <tr>
+      <td class="label">${label}</td>
+      <td class="value">${value || '<span class="empty">—</span>'}</td>
+    </tr>`;
+
+  return {
+    html: `
+    <div class="header">
+      <div class="logo-area"><div class="logo-text">ImmD</div><div class="logo-sub">Immigration Dept</div></div>
+      <div class="title-area">
+        <h1>Request for Search of Marriage Records</h1>
+        <h2>Immigration Department · Hong Kong SAR</h2>
+        <p class="subtitle">Prepared by Zoya Advocate AI · ${new Date().toLocaleDateString('en-HK')}</p>
+      </div>
+    </div>
+    <div class="section">
+      <h3>APPLICANT DETAILS</h3>
+      <table>${[
+        field('Full Name of Applicant', cf.name),
+        field('HKID Number', cf.hkid),
+      ].join('')}</table>
+    </div>
+    <div class="section">
+      <h3>MARRIAGE RECORD SOUGHT</h3>
+      <table>${[
+        field('Name of Spouse / Party', cf.spouse_name),
+        field('HKID of Spouse', cf.spouse_hkid),
+        field('Date of Marriage', cf.marriage_date),
+        field('Place of Marriage', cf.marriage_place),
+      ].join('')}</table>
+    </div>
+    <div class="section declaration">
+      <h3>DECLARATION</h3>
+      <p>I declare that I am entitled to obtain the record and the information provided is true and correct.</p>
+      <div class="sig-row">
+        <div class="sig-box"><div class="sig-line"></div><div class="sig-label">Signature</div></div>
+        <div class="sig-box"><div class="sig-line">${new Date().toLocaleDateString('en-HK')}</div><div class="sig-label">Date</div></div>
+      </div>
+    </div>
+    <div class="footer"><p>Immigration Department · Hong Kong SAR Government · Confidential</p><p>Prepared by Zoya Advocate AI</p></div>`,
+    css: `
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+      body { font-family: 'Inter', 'Noto Sans', 'Noto CJK', sans-serif; font-size: 11px; color: #1e293b; margin: 0; }
+      .header { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 20px; border-bottom: 3px solid #1e40af; padding-bottom: 14px; }
+      .logo-area { background: #1e40af; color: white; padding: 10px 14px; border-radius: 8px; text-align: center; min-width: 60px; }
+      .logo-text { font-size: 16px; font-weight: 700; }
+      .logo-sub { font-size: 7px; margin-top: 2px; opacity: 0.85; }
+      .title-area h1 { margin: 0 0 2px; font-size: 16px; color: #1e40af; }
+      .title-area h2 { margin: 0 0 4px; font-size: 12px; color: #64748b; font-weight: 600; }
+      .subtitle { margin: 0; font-size: 9px; color: #94a3b8; }
+      .section { margin-bottom: 18px; }
+      .section h3 { font-size: 10px; font-weight: 700; color: #1e40af; border-bottom: 1px solid #dbeafe; padding-bottom: 4px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.8px; }
+      table { width: 100%; border-collapse: collapse; }
+      td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; font-size: 11px; }
+      td.label { width: 40%; color: #64748b; font-weight: 600; }
+      td.value { color: #1e293b; }
+      .empty { color: #cbd5e1; font-style: italic; }
+      .declaration { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 14px; }
+      .declaration p { line-height: 1.6; color: #475569; margin: 0 0 14px; }
+      .sig-row { display: flex; gap: 40px; margin-top: 20px; }
+      .sig-box { flex: 1; }
+      .sig-line { border-bottom: 1px solid #334155; height: 28px; font-size: 11px; padding-bottom: 4px; color: #1e293b; }
+      .sig-label { font-size: 9px; color: #94a3b8; margin-top: 4px; }
+      .footer { border-top: 1px solid #e2e8f0; padding-top: 8px; text-align: center; color: #94a3b8; font-size: 8px; }
+      .footer p { margin: 2px 0; }
+    `
+  };
+}
+
+app.post('/api/anvil-fill', async (req, res) => {
+  try {
+    const { formType, caseFile } = req.body;
+    const apiKey = process.env.ANVIL_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: 'ANVIL_API_KEY not set in .env' });
+
+    let htmlData;
+    let title;
+    if (formType === 'cssa') {
+      htmlData = buildCSSAHtml(caseFile);
+      title = 'CSSA Application — Prepared by Zoya';
+    } else if (formType === 'marriage_search') {
+      htmlData = buildMarriageHtml(caseFile);
+      title = 'Marriage Record Search — Prepared by Zoya';
+    } else {
+      return res.status(400).json({ error: 'Unknown formType. Use cssa or marriage_search.' });
+    }
+
+    const payload = {
+      title,
+      type: 'html',
+      page: { width: '8.27in', height: '11.69in', margin: '48px', marginTop: '36px', marginBottom: '36px' },
+      data: { html: htmlData.html, css: htmlData.css },
+    };
+
+    // Call Anvil generate-pdf REST endpoint directly (simpler than SDK for ESM)
+    const anvilRes = await fetch('https://app.useanvil.com/api/v1/generate-pdf', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Basic ' + Buffer.from(`${apiKey}:`).toString('base64'),
+        'Accept': 'application/pdf',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!anvilRes.ok) {
+      const errText = await anvilRes.text();
+      console.error('[Anvil] Error:', anvilRes.status, errText);
+      return res.status(anvilRes.status).json({ error: `Anvil error ${anvilRes.status}: ${errText.slice(0, 200)}` });
+    }
+
+    const pdfBuffer = Buffer.from(await anvilRes.arrayBuffer());
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Zoya_Anvil_${formType}.pdf"`);
+    res.send(pdfBuffer);
+
+  } catch (err) {
+    console.error('[Anvil] Exception:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // New Endpoint for Local Autofilling (kept for backwards compatibility)

@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import WhatsAppTimeline from './WhatsAppTimeline';
 import EmergencyShelters from './EmergencyShelters';
 
 const safelyStringify = (val) => {
@@ -67,6 +66,14 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
   const [previewUrl, setPreviewUrl] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [showEmergency, setShowEmergency] = useState(false);
+  const [activeRightTab, setActiveRightTab] = useState('forms'); // 'forms' or 'vault'
+  const [vaultItems, setVaultItems] = useState(() => loadState('zoya_vault_items', []));
+  const [compiledDocs, setCompiledDocs] = useState(() => loadState('zoya_compiled_docs', null));
+  const [showDocsModal, setShowDocsModal] = useState(false);
+  const [secureFormHtml, setSecureFormHtml] = useState(null);
+  const [secureFormTitle, setSecureFormTitle] = useState('');
+  const [showSingleFormModal, setShowSingleFormModal] = useState(false);
+  const [vaultAnalyzing, setVaultAnalyzing] = useState(false);
   const [smsSent, setSmsSent] = useState(false);
   const [autoActions, setAutoActions] = useState(() => loadState('zoya_auto_actions', []));
   const [casePhase, setCasePhase] = useState(() => loadState('zoya_phase', 'hour0_intake'));
@@ -83,6 +90,10 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
   const recognitionRef = useRef(null);
   const [actionLog, setActionLog] = useState([]); // Live action feed
   const [dragging, setDragging] = useState(false);
+  const [loadingText, setLoadingText] = useState('');
+
+  useEffect(() => { localStorage.setItem('zoya_vault_items', JSON.stringify(vaultItems)); }, [vaultItems]);
+  useEffect(() => { localStorage.setItem('zoya_compiled_docs', JSON.stringify(compiledDocs)); }, [compiledDocs]);
 
   useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, currentTask]);
 
@@ -167,7 +178,7 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
         const missing = INJUNCTION_REQUIREMENTS.filter(r => !r.check(caseFile));
         if (missing.length > 0 && missing.length < INJUNCTION_REQUIREMENTS.length) {
           const next = missing[0];
-          setMessages(prev => [...prev, { role: 'agent', text: `✅ Zoya updated your case.\n\nNext step: ${next.label}`, isAutoAction: true }]);
+          setActionLog(prev => [...prev.slice(-8), { icon: '🧠', text: `Evaluating next step: ${next.label}`, time: Date.now() }]);
         }
       }, lastDelay + 500);
     }
@@ -251,7 +262,7 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
     if (actions.length > 0) {
       setAutoActions(prev => [...prev, ...actions.map(a => a.id)]);
       actions.forEach(action => {
-        setMessages(prev => [...prev, { role: 'agent', text: `📋 Auto-prepared: ${action.label}\nDownload from PDF Architect →`, isAutoAction: true }]);
+        setActionLog(prev => [...prev.slice(-8), { icon: '📋', text: `System mapping: ${action.label}`, time: Date.now() }]);
         if (!docDatabase.some(d => d.formType === action.formType))
           setDocDatabase(prev => [...prev, { name: action.label, uploaded: false, formType: action.formType }]);
       });
@@ -266,9 +277,8 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
     const hit = milestones.find(m => pct >= m && !autoActions.includes(`milestone_${m}`));
     if (hit) {
       setAutoActions(prev => [...prev, `milestone_${hit}`]);
-      const msg = hit === 100 ? '🎉 Your case is 100% ready for court.\nOne click to export everything for your solicitor.' 
-        : `📊 Case readiness: ${hit}%.\n${hit === 75 ? "Almost there. Here's what's left:" : "Making progress. Zoya is working on the rest."}`;
-      setMessages(prev => [...prev, { role: 'agent', text: msg, isAutoAction: true }]);
+      const msg = hit === 100 ? '🎉 Case 100% ready for court.' : `📊 Case readiness: ${hit}%`;
+      setActionLog(prev => [...prev.slice(-8), { icon: hit === 100 ? '🎉' : '📊', text: msg, time: Date.now() }]);
     }
   }, [caseFile]);
 
@@ -402,6 +412,98 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
     if (file) handleSmartUpload(file, -1);
   };
 
+  const handleVaultUpload = async (file) => {
+    if (!file) return;
+    
+    // Catch text files and route to timeline extractor
+    if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
+      const contextPrompt = prompt("Provide context for this chat log (e.g., 'Messages from last weekend'):") || 'WhatsApp Evidence';
+      setVaultAnalyzing(true);
+      setActionLog(prev => [...prev.slice(-8), { icon: '⟳', text: `Parsing chronological chat data...`, time: Date.now() }]);
+      try {
+        const text = await file.text();
+        const res = await fetch('http://localhost:3001/api/extract-timeline', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+        const data = await res.json();
+        const count = data.timeline?.length || 0;
+        setCaseFile(prev => ({ ...prev, evidence_timeline: prev.evidence_timeline ? `${prev.evidence_timeline} | ${count} incidents from ${file.name}` : `${count} incidents from ${file.name}` }));
+        
+        // Store in local storage for the compiler
+        const chatData = { timeline: data.timeline, language: data.language, uploadedName: file.name, savedAt: new Date().toISOString() };
+        localStorage.setItem('whatsapp_timeline', JSON.stringify(chatData));
+        
+        // Add a visual marker to the vault
+        setVaultItems(prev => [...prev, { id: Date.now(), dataUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="%23f8fafc"/><text x="10" y="45" font-family="Arial" font-size="12" fill="%2364748b" font-weight="bold">TXT LOG</text></svg>', contextText: contextPrompt, analysis: `Extracted ${count} incidents into chronological order.` }]);
+        setActionLog(prev => [...prev.slice(-8), { icon: '✓', text: `${count} incidents extracted and vaulted`, time: Date.now() }]);
+      } catch(e) {
+        setActionLog(prev => [...prev.slice(-8), { icon: '✗', text: 'Chat analysis failed', time: Date.now() }]);
+      } finally {
+        setVaultAnalyzing(false);
+      }
+      return;
+    }
+
+    const contextPrompt = prompt("Provide context for this evidence (e.g., 'He sent this on Tuesday', 'Bruise on my arm from last night'):") || 'None';
+    setVaultAnalyzing(true);
+    setActionLog(prev => [...prev.slice(-8), { icon: '🤖', text: `Analyzing evidence with Vision AI...`, time: Date.now() }]);
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64data = reader.result.split(',')[1];
+        const res = await fetch('http://localhost:3001/api/vault/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageBase64: base64data, mimeType: file.type, contextText: contextPrompt })
+        });
+        if (res.ok) {
+          const { analysis, storageUrl } = await res.json();
+          setVaultItems(prev => [...prev, { id: Date.now(), dataUrl: storageUrl, contextText: contextPrompt, analysis }]);
+          setActionLog(prev => [...prev.slice(-8), { icon: '✓', text: `Evidence analyzed and securely vaulted.`, time: Date.now() }]);
+        } else {
+          const errorResp = await res.json();
+          setActionLog(prev => [...prev.slice(-8), { icon: '✗', text: `Upload failed: ${errorResp.error || '500 Internal Error'}`, time: Date.now() }]);
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (e) {
+      console.error(e);
+      setActionLog(prev => [...prev.slice(-8), { icon: '✗', text: `Analysis failed`, time: Date.now() }]);
+    } finally {
+      setVaultAnalyzing(false);
+    }
+  };
+
+  const generateCasePackage = async () => {
+    setShowDocsModal(true);
+    setVaultAnalyzing(true);
+    setActionLog(prev => [...prev.slice(-8), { icon: '🤖', text: `Agent compiling massive case package via Memory...`, time: Date.now() }]);
+    try {
+      const whatsappRaw = localStorage.getItem('whatsapp_timeline');
+      const whatsappTimeline = whatsappRaw ? JSON.parse(whatsappRaw) : null;
+      
+      const res = await fetch('http://localhost:3001/api/agent/compile-case-package', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vaultItems, messages, caseFile, whatsappTimeline })
+      });
+      if (res.ok) {
+        const payload = await res.json();
+        setCompiledDocs(payload);
+        setActionLog(prev => [...prev.slice(-8), { icon: '✓', text: `3 Legal artifacts successfully generated!`, time: Date.now() }]);
+      } else {
+        const err = await res.json();
+        setActionLog(prev => [...prev.slice(-8), { icon: '✗', text: `Compilation failed: ${err.error}`, time: Date.now() }]);
+      }
+    } catch (e) {
+      console.error(e);
+      setActionLog(prev => [...prev.slice(-8), { icon: '✗', text: `Compilation error: ${e.message}`, time: Date.now() }]);
+    } finally {
+      setVaultAnalyzing(false);
+    }
+  };
+
   const handleAction = async (val) => {
     const textToSend = safelyStringify(val || input || "").trim();
     if (!textToSend) return;
@@ -417,10 +519,20 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
       if (data.newDocRequirement) setDocDatabase(prev => { const n = safelyStringify(data.newDocRequirement); if (prev.some(d => d.name === n)) return prev; return [...prev, { name: n, uploaded: false, formType: data.formType ? safelyStringify(data.formType) : null }]; });
       if (data.casePhase) setCasePhase(data.casePhase);
       if (data.dangerLevel) setDangerLevel(data.dangerLevel);
-      if (data.autoActions?.length > 0) data.autoActions.forEach(a => setMessages(prev => [...prev, { role: 'agent', text: `⚡ ${safelyStringify(a)}`, isAutoAction: true }]));
+      if (data.autoActions?.length > 0) data.autoActions.forEach(a => setActionLog(prev => [...prev.slice(-8), { icon: '⚡', text: safelyStringify(a), time: Date.now() }]));
     } catch(e) { setMessages(prev => [...prev, { role: 'agent', text: 'Connection issue. Zoya is still here.' }]); }
     finally { setLoading(false); }
   };
+
+  useEffect(() => {
+    let int;
+    if (loading) {
+      const texts = ['🧠 Zoya is evaluating context...', '📊 Calculating case readiness...', '⚖️ Consulting HK legal frameworks...', '⚡ Structuring safe response...'];
+      let i = 0; setLoadingText(texts[0]);
+      int = setInterval(() => { i = (i + 1) % texts.length; setLoadingText(texts[i]); }, 2000);
+    }
+    return () => clearInterval(int);
+  }, [loading]);
 
   const markDocUploaded = (idx) => { if (idx < 0) return; setDocDatabase(prev => { if (!prev[idx]) return prev; const c = [...prev]; c[idx].uploaded = true; return c; }); };
 
@@ -628,68 +740,15 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
               </div>
             ))}
           </div>
-          {readinessScore >= 75 && (
-            <button onClick={handleDownloadPack} style={{marginTop:'0.6rem', width:'100%', padding:'0.6rem', background:'linear-gradient(135deg, #6b5344, #8b6f5c)', color:'white', border:'none', borderRadius:'10px', fontWeight:800, fontSize:'0.75rem', cursor:'pointer', boxShadow:'0 4px 15px rgba(139,111,92,0.3)'}}>
-              📦 {lang === 'zh' ? '匯出完整案件包' : 'Export Complete Case Pack'}
-            </button>
-          )}
         </div>
 
-        {/* DOC DATABASE */}
-        <div className="doc-list">
-          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.5rem'}}>
-            <span className="task-label">{lang === 'zh' ? '文件' : 'Documents'}</span>
-            <label style={{fontSize:'0.6rem', fontWeight:700, color:'#8b6f5c', cursor:'pointer', padding:'0.2rem 0.5rem', background:'#f5f0e8', borderRadius:'6px', border:'1px solid #e2ddd5'}}>
-              + {lang === 'zh' ? '上傳' : 'Upload'}
-              <input type="file" style={{display:'none'}} onChange={(e) => handleSmartUpload(e.target.files?.[0], -1)} accept=".pdf,.jpg,.jpeg,.png,.docx,.webp" />
-            </label>
+        {/* ===== SHELTER SYSTEM ADD-ON ===== */}
+        {/* Shows real-time HK shelter availability. Fires toast when a waitlist opens. */}
+        {shelters && shelters.length > 0 && (
+          <div style={{marginTop: '1rem'}}>
+             <EmergencyShelters shelters={shelters} />
           </div>
-          {requiredDocs.length === 0 && submittedDocs.length === 0 && <p style={{fontSize:'0.7rem', color:'#94a3b8'}}>Documents will appear as Zoya identifies them.</p>}
-          {requiredDocs.map((doc, idx) => {
-            const oi = docDatabase.findIndex(d => d.name === doc.name);
-            return (
-              <div key={`req-${idx}`} className="doc-item">
-                <div className="doc-name">{safelyStringify(doc.name)}</div>
-                {doc.link ? (
-                  <a href={doc.link} target="_blank" rel="noopener noreferrer" className="mini-upload-btn" style={{background:'#8b6f5c', color:'white', border:'none', textAlign:'center', cursor:'pointer', display:'block', textDecoration:'none'}}>Open Official Form ↗</a>
-                ) : doc.formType ? (
-                  <div style={{display:'flex', gap:'0.4rem'}}>
-                    <div
-                      className="mini-upload-btn"
-                      style={{flex:1, background: smartFillLoading ? '#94a3b8' : 'linear-gradient(135deg,#6366f1,#8b5cf6)', color:'white', border:'none', textAlign:'center', cursor: smartFillLoading ? 'not-allowed' : 'pointer', fontSize:'0.75rem', fontWeight:800}}
-                      onClick={() => !smartFillLoading && handleSmartFill(doc.formType)}
-                      title="Gemini Vision reads the PDF layout and fills fields autonomously"
-                    >
-                      {smartFillLoading ? '⟳ Analyzing...' : '⚡ Smart Fill'}
-                    </div>
-                    <div
-                      className="mini-upload-btn"
-                      style={{flex:1, background:'#8b6f5c', color:'white', border:'none', textAlign:'center', cursor:'pointer', fontSize:'0.75rem'}}
-                      onClick={() => handleAutofillKnown(doc.formType)}
-                    >
-                      Classic Fill
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mini-upload-btn-wrapper"><div className="mini-upload-btn" style={{textAlign:'center'}}>Submit</div><input type="file" onChange={(e) => handleSmartUpload(e.target.files?.[0], oi)} /></div>
-                )}
-              </div>
-            );
-          })}
-          {submittedDocs.length > 0 && <hr style={{margin:'1rem 0', opacity:0.1}} />}
-          {submittedDocs.map((doc, idx) => (
-            <div key={`sub-${idx}`} className="doc-item done">
-              <div className="doc-name">{safelyStringify(doc.name)}</div>
-              <span className="check-icon">✓</span>
-            </div>
-          ))}
-
-          {/* ===== SHELTER SYSTEM ADD-ON ===== */}
-          {/* Shows real-time HK shelter availability. Fires toast when a waitlist opens. */}
-          {shelters && shelters.length > 0 && (
-            <EmergencyShelters shelters={shelters} />
-          )}
-        </div>
+        )}
       </aside>
 
       {/* MAIN: CHAT */}
@@ -724,89 +783,28 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
           </div>
         </header>
 
-        {/* TAB SWITCHER */}
-        <div style={{padding: '0.8rem 1.2rem', background: 'var(--bg-main)', borderBottom: '1px solid var(--border)', display: 'flex', gap: '1rem'}}>
-          <div 
-            onClick={() => setActiveTab('chat')}
-            style={{
-              flex: 1, 
-              padding: '0.8rem', 
-              borderRadius: '12px', 
-              cursor: 'pointer', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center', 
-              gap: '0.8rem',
-              transition: 'opacity 0.2s, background 0.2s',
-              background: activeTab === 'chat' ? 'white' : 'transparent',
-              border: activeTab === 'chat' ? '1.5px solid var(--primary)' : '1.5px solid transparent',
-              opacity: activeTab === 'chat' ? 1 : 0.6
-            }}
-          >
-            <span style={{fontSize: '1.2rem'}}>💬</span>
-            <div style={{textAlign: 'left', minWidth: '100px'}}>
-              <div style={{fontSize: '0.85rem', fontWeight: 800, color: activeTab === 'chat' ? 'var(--primary-dark)' : 'var(--text-muted)', fontFamily: 'Outfit, sans-serif'}}>ZOYA CHAT</div>
-              <div style={{fontSize: '0.75rem', color: 'var(--text-muted)'}}>{lang === 'zh' ? '安全聊天' : 'Secure Guidance'}</div>
-            </div>
-          </div>
-
-          <div 
-            onClick={() => setActiveTab('evidence')}
-            style={{
-              flex: 1, 
-              padding: '0.8rem', 
-              borderRadius: '12px', 
-              cursor: 'pointer', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center', 
-              gap: '0.8rem',
-              transition: 'opacity 0.2s, background 0.2s',
-              background: activeTab === 'evidence' ? 'white' : 'transparent',
-              border: activeTab === 'evidence' ? '1.5px solid var(--accent)' : '1.5px solid transparent',
-              opacity: activeTab === 'evidence' ? 1 : 0.6
-            }}
-          >
-            <span style={{fontSize: '1.2rem'}}>📊</span>
-            <div style={{textAlign: 'left', minWidth: '100px'}}>
-              <div style={{fontSize: '0.85rem', fontWeight: 800, color: activeTab === 'evidence' ? 'var(--accent)' : 'var(--text-muted)', fontFamily: 'Outfit, sans-serif'}}>EVIDENCE</div>
-              <div style={{fontSize: '0.75rem', color: 'var(--text-muted)'}}>{lang === 'zh' ? '證據提取' : 'Timeline'}</div>
-            </div>
-          </div>
-        </div>
-         
-        {activeTab === 'chat' ? (
-          <>
-            <div className="chat-messages">
+        <div className="chat-messages">
               {(messages || []).map((m, i) => (
                 <div key={`msg-${i}`} className={`bubble ${m.role} ${m.isAutoAction ? 'auto-action' : ''}`} style={{whiteSpace:'pre-line'}}>
                   {renderWithLinks(m.text)}
                 </div>
               ))}
-              {!loading && currentTask && (
-                <div className="bubble agent intake-bubble">
-                  <p style={{marginBottom:'0.8rem', fontWeight:800, color:'#8b6f5c', fontSize:'0.9rem'}}>{safelyStringify(currentTask.label)}</p>
-                  {currentTask.type === 'choice' ? (
-                    <div className="option-grid">
-                      {(currentTask.options || []).map((opt, i) => (
-                        <div key={`opt-${i}`} className="pill-btn" onClick={() => handleAction(opt)} role="button" style={{textAlign:'center'}}>{safelyStringify(opt)}</div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="dedicated-field">
-                      <input type="text" placeholder="Type your response..." value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAction()} />
-                      <div className="send-btn" onClick={() => handleAction()} role="button" style={{display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer'}}>OK</div>
-                    </div>
-                  )}
-                  {currentTask.formType && (
-                    <div style={{marginTop:'0.8rem', padding:'0.8rem', background:'#f5f0e8', borderRadius:'10px', border:'1px solid #e2ddd5'}}>
-                      <p style={{fontSize:'0.75rem', color:'#8b6f5c', fontWeight:600, marginBottom:'0.4rem'}}>✨ Official HK form identified</p>
-                      <div className="primary-btn" style={{background:'#8b6f5c', width:'100%', fontSize:'0.75rem', textAlign:'center', cursor:'pointer'}} onClick={() => handleAutofillKnown(currentTask.formType)}>Autofill & Download PDF</div>
-                    </div>
-                  )}
+              {!loading && currentTask && currentTask.type === 'choice' && (
+                <div className="bubble agent intake-bubble" style={{background: 'transparent', border: 'none', padding: '0.5rem 0', boxShadow: 'none'}}>
+                  {currentTask.label && <p style={{marginBottom:'0.8rem', fontWeight:800, color:'#8b6f5c', fontSize:'0.9rem', paddingLeft: '0.5rem'}}>{safelyStringify(currentTask.label)}</p>}
+                  <div style={{display:'flex', flexDirection:'column', gap:'0.6rem'}}>
+                    {(currentTask.options || []).map((opt, i) => (
+                      <div key={`opt-${i}`} className="pill-btn" onClick={() => handleAction(opt)} role="button" style={{textAlign:'center'}}>{safelyStringify(opt)}</div>
+                    ))}
+                  </div>
                 </div>
               )}
-              {loading && <div className="typing"><div className="dot" /><div className="dot" /><div className="dot" /></div>}
+              {loading && (
+                <div style={{display:'flex', alignItems:'center', gap:'0.8rem', padding:'1rem', background:'var(--beige)', borderLeft:'4px solid var(--primary)', borderRadius:'0 12px 12px 0', opacity:0.8, animation:'pulse 2s infinite'}}>
+                  <div className="typing" style={{margin:0, padding:0}}><div className="dot" style={{width:'6px', height:'6px'}} /><div className="dot" style={{width:'6px', height:'6px'}} /><div className="dot" style={{width:'6px', height:'6px'}} /></div>
+                  <span style={{fontSize:'0.8rem', color:'#8b6f5c', fontWeight:700}}>{loadingText}</span>
+                </div>
+              )}
               <div ref={scrollRef} />
             </div>
 
@@ -819,47 +817,263 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
               <button onClick={handleSOS} style={{background:'#dc2626', color:'white', border:'none', borderRadius:'50px', padding:'0.8rem 1.2rem', fontSize:'0.9rem', fontWeight:800, cursor:'pointer', flexShrink:0, boxShadow:'0 4px 15px rgba(220,38,38,0.3)'}}>🚨 SOS</button>
               {onLock && <button onClick={onLock} style={{background:'#22c55e', color:'white', border:'none', borderRadius:'50px', padding:'0.8rem 1.2rem', fontSize:'0.9rem', fontWeight:800, cursor:'pointer', flexShrink:0, boxShadow:'0 4px 15px rgba(34,197,94,0.3)'}}>🌱 {lang === 'zh' ? '隱藏' : 'Hide'}</button>}
             </div>
-          </>
-        ) : (
-          <div style={{ flex: 1, overflowY: 'auto', background: '#f8fafc', padding: '1rem' }}>
-            <WhatsAppTimeline />
-          </div>
-        )}
       </main>
 
-      {/* RIGHT: LIVE PDF ARCHITECT */}
-      <aside className="panel right-panel" style={{paddingTop: showEmergency ? '52px' : 0}}>
+      {/* RIGHT: AGENTIC DOCUMENT RECOMMENDER & SECURE VAULT */}
+      <aside className="panel right-panel" style={{paddingTop: showEmergency ? '52px' : 0, display: 'flex', flexDirection: 'column'}}>
         <header className="panel-header" style={{flexDirection:'column', alignItems:'flex-start', gap:'0.8rem', padding:'1rem 1.5rem'}}>
-          <h2>{lang === 'zh' ? '即時PDF建構' : 'Live PDF Architect'}</h2>
-          <div style={{display:'flex', gap:'0.4rem', width:'100%'}}>
-            <div className={`status-indicator ${activeFormType === 'cssa' ? 'active' : ''}`} onClick={() => setActiveFormType('cssa')} style={{cursor:'pointer', opacity: activeFormType === 'cssa' ? 1 : 0.5, fontSize:'0.6rem'}}>CSSA</div>
-            <div className={`status-indicator ${activeFormType === 'marriage_search' ? 'active' : ''}`} onClick={() => setActiveFormType('marriage_search')} style={{cursor:'pointer', opacity: activeFormType === 'marriage_search' ? 1 : 0.5, fontSize:'0.6rem'}}>MARRIAGE</div>
+          <div style={{display:'flex', width:'100%', gap:'0.8rem', borderBottom:'1px solid #e2e8f0', paddingBottom:'0.5rem'}}>
+             <button onClick={() => setActiveRightTab('forms')} style={{flex:1, background: activeRightTab === 'forms' ? '#1e293b' : 'transparent', color: activeRightTab === 'forms' ? 'white' : '#64748b', border:'none', padding:'0.6rem', borderRadius:'8px', fontSize:'0.8rem', fontWeight:700, cursor:'pointer'}}>📄 Required Forms</button>
+             <button onClick={() => setActiveRightTab('vault')} style={{flex:1, background: activeRightTab === 'vault' ? '#8b5cf6' : 'transparent', color: activeRightTab === 'vault' ? 'white' : '#64748b', border:'none', padding:'0.6rem', borderRadius:'8px', fontSize:'0.8rem', fontWeight:700, cursor:'pointer'}}>🔒 Secure Vault</button>
           </div>
         </header>
-        <div style={{flex:1, position:'relative', background:'#e2e8f0', display:'flex', flexDirection:'column'}}>
-          {previewLoading && <div style={{position:'absolute', top:'0.8rem', right:'0.8rem', background:'white', padding:'0.4rem 0.8rem', borderRadius:'20px', fontSize:'0.65rem', fontWeight:700, color:'#8b6f5c', boxShadow:'0 4px 12px rgba(0,0,0,0.1)', zIndex:10}}>Drawing...</div>}
-          {previewUrl ? (
-            <iframe src={`${previewUrl}#toolbar=0&navpanes=0&scrollbar=0`} style={{width:'100%', flex:1, border:'none', background:'white'}} title="PDF Preview" />
+
+        <div style={{flex:1, overflowY:'auto', padding:'1.5rem', background:'#f8fafc'}}>
+          {activeRightTab === 'forms' ? (
+            /* REQUIRED FORMS VIEW */
+            (() => {
+               const docs = [
+                  { id: 'cssa', title: 'CSSA Application Form', desc: 'Financial assistance for daily needs and housing.', req: !!caseFile.financial || true, url: 'https://www.swd.gov.hk/storage/asset/section/2884/en/CSSA_Registration_Form.pdf' },
+                  { id: 'legal_aid', title: 'Legal Aid Civil Pre-App', desc: 'Required documentation for divorce proceedings.', req: !!caseFile.legal, url: 'https://www.lad.gov.hk/eng/documents/las/pre_application_info_form/Pre-application%20Information%20Form_General%20Civil%20Cases_eng.pdf' },
+                  { id: 'housing', title: 'Public Housing Application', desc: 'Required for Compassionate Rehousing/Conditional Tenancy.', req: caseFile.safety === 'unsafe', url: 'https://www.housingauthority.gov.hk/en/common/pdf/global-elements/forms/public-housing/HD274.pdf' },
+                  { id: 'marriage', title: 'Marriage Search Form (MR35)', desc: 'Required if you lack your original certificate.', req: !!caseFile.spouse_name, url: 'https://www.immd.gov.hk/pdforms/mr35.pdf' }
+               ];
+               const activeDocs = docs.filter(d => d.req);
+               const inactiveDocs = docs.filter(d => !d.req);
+
+               const handleAgentFetch = async (docUrl, docId) => {
+                 setShowSingleFormModal(true);
+                 setSecureFormHtml(null); // Show loading state
+                 setSecureFormTitle(docId);
+                 setActionLog(prev => [...prev.slice(-8), { icon: '🤖', text: `Drafting secure zero-footprint form for ${docId}...`, time: Date.now() }]);
+                 try {
+                   const r = await fetch('http://localhost:3001/api/agent/draft-official-form', {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json' },
+                     body: JSON.stringify({ docId, caseFile })
+                   });
+                   if (r.ok) {
+                     const payload = await r.json();
+                     setSecureFormHtml(payload.html);
+                     setSecureFormTitle(payload.title);
+                     setActionLog(prev => [...prev.slice(-8), { icon: '✓', text: `Ephemeral ${docId} form successfully drafted.`, time: Date.now() }]);
+                   } else {
+                     const err = await r.json();
+                     setActionLog(prev => [...prev.slice(-8), { icon: '✗', text: `Draft failed: ${err.error}`, time: Date.now() }]);
+                     setShowSingleFormModal(false);
+                   }
+                 } catch (e) {
+                   setActionLog(prev => [...prev.slice(-8), { icon: '✗', text: `Agent error: ${e.message}`, time: Date.now() }]);
+                   setShowSingleFormModal(false);
+                 }
+               };
+
+               return (
+                 <>
+                   <div style={{marginBottom:'1.5rem'}}>
+                      <h3 style={{fontSize:'0.8rem', fontWeight:800, color:'#0f172a', marginBottom:'1rem', textTransform:'uppercase', letterSpacing:'1px', display:'flex', alignItems:'center', gap:'0.4rem'}}>
+                        <span style={{color:'#f59e0b'}}>⚠️</span> Required for your case
+                      </h3>
+                      {activeDocs.length === 0 ? <p style={{fontSize:'0.8rem', color:'#64748b'}}>Zoya is analyzing your case...</p> : activeDocs.map(doc => (
+                        <div key={doc.id} style={{background:'white', left:0, borderLeft:'4px solid #f59e0b', padding:'1rem', borderRadius:'8px', marginBottom:'0.8rem', boxShadow:'0 2px 8px rgba(0,0,0,0.05)', transition:'transform 0.2s'}} onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'} onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
+                          <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
+                            <div style={{paddingRight:'0.8rem'}}>
+                              <h4 style={{fontSize:'0.85rem', margin:'0 0 0.3rem 0', color:'#1e293b'}}>{doc.title}</h4>
+                              <p style={{fontSize:'0.75rem', color:'#64748b', margin:0, lineHeight:1.4}}>{doc.desc}</p>
+                            </div>
+                            <button onClick={() => handleAgentFetch(doc.url, doc.id)} style={{background:'#fcf0fd', color:'#a21caf', padding:'0.4rem 0.8rem', border:'none', borderRadius:'6px', fontSize:'0.7rem', fontWeight:700, whiteSpace:'nowrap', cursor:'pointer' }}>✏️ Draft in Secure Popup</button>
+                          </div>
+                        </div>
+                      ))}
+                   </div>
+
+                   {inactiveDocs.length > 0 && (
+                     <div>
+                        <h3 style={{fontSize:'0.8rem', fontWeight:800, color:'#94a3b8', marginBottom:'1rem', textTransform:'uppercase', letterSpacing:'1px'}}>Other Available Forms</h3>
+                        {inactiveDocs.map(doc => (
+                          <div key={doc.id} style={{background:'white', border:'1px solid #e2e8f0', padding:'1rem', borderRadius:'8px', marginBottom:'0.8rem', opacity:0.7}}>
+                            <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
+                              <div style={{paddingRight:'0.8rem'}}>
+                                <h4 style={{fontSize:'0.85rem', margin:'0 0 0.3rem 0', color:'#64748b'}}>{doc.title}</h4>
+                                <p style={{fontSize:'0.75rem', color:'#94a3b8', margin:0, lineHeight:1.4}}>{doc.desc}</p>
+                              </div>
+                              <button onClick={() => handleAgentFetch(doc.url, doc.id)} style={{background:'#f1f5f9', color:'#64748b', padding:'0.4rem 0.8rem', border:'none', borderRadius:'6px', fontSize:'0.7rem', fontWeight:700, whiteSpace:'nowrap', cursor:'pointer' }}>Download via Zoya</button>
+                            </div>
+                          </div>
+                        ))}
+                     </div>
+                   )}
+                 </>
+               )
+            })()
           ) : (
-            <div style={{flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'#94a3b8'}}>
-              <div style={{fontSize:'2.5rem', marginBottom:'0.5rem', opacity:0.4}}>📄</div>
-              <p style={{fontSize:'0.8rem', fontWeight:600}}>Loading Architect...</p>
+            /* SECURE VAULT VIEW */
+            <div style={{display:'flex', flexDirection:'column', gap:'1.5rem'}}>
+               <div style={{background:'linear-gradient(135deg, #1e1b4b, #312e81)', padding:'1.5rem', borderRadius:'12px', color:'white', position:'relative', overflow:'hidden'}}>
+                 <div style={{position:'relative', zIndex:2}}>
+                   <h3 style={{fontSize:'1.1rem', margin:'0 0 0.5rem 0'}}>Encrypted Evidence Vault</h3>
+                   <p style={{fontSize:'0.8rem', color:'#c7d2fe', lineHeight:1.4, margin:'0 0 1rem 0'}}>Upload images of injuries, WhatsApp chats, or documents. Zoya's Vision AI will forensically analyze them and compile a formal Legal Evidence Manifest.</p>
+                   <label style={{display:'inline-flex', alignItems:'center', background:'#8b5cf6', padding:'0.6rem 1rem', borderRadius:'8px', fontSize:'0.8rem', fontWeight:700, cursor:'pointer', gap:'0.5rem'}}>
+                      <span>{vaultAnalyzing ? 'Analyzing...' : '📤 Add Evidence'}</span>
+                      <input type="file" accept="image/*,application/pdf,text/plain,.txt" style={{display:'none'}} disabled={vaultAnalyzing} onChange={(e) => handleVaultUpload(e.target.files[0])} />
+                   </label>
+                 </div>
+                 <div style={{position:'absolute', right:'-20px', bottom:'-20px', fontSize:'7rem', opacity:0.1, zIndex:1}}>🔒</div>
+               </div>
+
+               {vaultItems.length > 0 && (
+                 <div style={{display:'flex', flexDirection:'column', gap:'1rem'}}>
+                   <h3 style={{fontSize:'0.8rem', fontWeight:800, color:'#0f172a', textTransform:'uppercase', letterSpacing:'1px'}}>Stored Evidence ({vaultItems.length})</h3>
+                   {vaultItems.map((item, idx) => (
+                     <div key={item.id} style={{background:'white', padding:'1rem', borderRadius:'10px', boxShadow:'0 2px 8px rgba(0,0,0,0.05)', display:'flex', gap:'1rem'}}>
+                        <img src={item.dataUrl} alt={`Evidence ${idx}`} style={{width:'80px', height:'80px', objectFit:'cover', borderRadius:'8px'}} />
+                        <div style={{flex:1, position:'relative'}}>
+                           <p style={{fontSize:'0.75rem', fontWeight:700, color:'#8b5cf6', margin:'0 0 0.4rem 0'}}>Context: "{item.contextText}"</p>
+                           <p style={{fontSize:'0.75rem', color:'#334155', margin:0, lineHeight:1.5, background:'#f8fafc', padding:'0.6rem', borderRadius:'6px', borderLeft:'3px solid #8b5cf6'}}>{item.analysis}</p>
+                           <button 
+                              onClick={() => setVaultItems(prev => prev.filter(i => i.id !== item.id))}
+                              style={{position:'absolute', top: -5, right: -5, background:'#fee2e2', color:'#ef4444', border:'none', borderRadius:'50%', width:'20px', height:'20px', fontSize:'10px', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center'}}
+                              title="Delete evidence"
+                            >✕</button>
+                        </div>
+                     </div>
+                   ))}
+                   
+                   <button onClick={generateCasePackage} disabled={vaultAnalyzing} style={{marginTop:'0.5rem', background: vaultAnalyzing ? '#94a3b8' : 'linear-gradient(135deg, #10b981, #059669)', color:'white', border:'none', padding:'0.8rem', borderRadius:'8px', fontSize:'0.8rem', fontWeight:800, cursor: vaultAnalyzing ? 'not-allowed' : 'pointer', boxShadow:'0 4px 14px rgba(16,185,129,0.3)'}}>
+                     📄 {vaultAnalyzing ? 'Compiling Full Case via AI...' : (compiledDocs ? 'Re-compile Legal Package' : 'Compile Complete Legal Package')}
+                   </button>
+
+                   {compiledDocs && (
+                     <div style={{marginTop: '1rem'}}>
+                       <button onClick={() => setShowDocsModal(true)} style={{width:'100%', background:'#f1f5f9', color:'#334155', border:'1px solid #cbd5e1', padding:'0.6rem', borderRadius:'8px', fontSize:'0.75rem', fontWeight:700, cursor:'pointer'}}>
+                         👁️ View Generated Forms ({Object.keys(compiledDocs).length})
+                       </button>
+                     </div>
+                   )}
+                 </div>
+               )}
             </div>
           )}
         </div>
+
         <div style={{padding:'1.5rem', background:'white', borderTop:'1px solid var(--border)'}}>
-          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.6rem', marginBottom:'1.2rem'}}>
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.6rem'}}>
             <div className="case-card active" style={{padding:'0.8rem'}}><div className="card-header" style={{fontSize:'0.7rem'}}>{lang === 'zh' ? '身份' : 'Identity'}</div><div className="card-body" style={{fontSize:'0.9rem'}}>{safelyStringify(caseFile.name || '...')}</div></div>
             <div className="case-card active" style={{padding:'0.8rem'}}><div className="card-header" style={{fontSize:'0.7rem'}}>{lang === 'zh' ? '安全' : 'Safety'}</div><div className="card-body" style={{fontSize:'0.9rem', color: caseFile.safety === 'unsafe' ? '#dc2626' : caseFile.safety === 'at_risk' ? '#f59e0b' : '#10b981'}}>{safelyStringify(caseFile.safety || '...')}</div></div>
             <div className="case-card active" style={{padding:'0.8rem'}}><div className="card-header" style={{fontSize:'0.7rem'}}>{lang === 'zh' ? '財務' : 'Finance'}</div><div className="card-body" style={{fontSize:'0.9rem'}}>{safelyStringify(caseFile.financial || '...')}</div></div>
             <div className="case-card active" style={{padding:'0.8rem'}}><div className="card-header" style={{fontSize:'0.7rem'}}>{lang === 'zh' ? '法律' : 'Legal'}</div><div className="card-body" style={{fontSize:'0.9rem'}}>{safelyStringify(caseFile.legal || '...')}</div></div>
           </div>
-          <div className="mini-upload-btn-wrapper">
-            <div className="primary-btn" style={{width:'100%', borderRadius:'8px', textAlign:'center', cursor:'pointer', fontSize:'0.85rem', padding:'0.8rem'}}>{lang === 'zh' ? '映射模板' : 'Map Template'}</div>
-            <input type="file" onChange={handleFillGeneral} accept=".pdf,.docx"/>
-          </div>
         </div>
       </aside>
+
+      {/* THREE-COLUMN DOCUMENT GENERATION MODAL */}
+      {showDocsModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+          background: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(8px)',
+          zIndex: 9999, display: 'flex', flexDirection: 'column', padding: '2rem'
+        }}>
+          <style>{`
+            @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+            @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+            .blink { animation: blink 1.5s infinite; }
+          `}</style>
+          
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem'}}>
+            <div>
+              <h2 style={{color:'white', margin:0, fontSize:'1.8rem'}}>Massive AI Case Generation</h2>
+              {vaultAnalyzing && <p style={{color:'#a7f3d0', margin:'0.5rem 0 0 0', fontWeight:600}} className="blink">Writing documents live using Gemini 2.5 Flash...</p>}
+            </div>
+            <button onClick={() => setShowDocsModal(false)} style={{background:'rgba(255,255,255,0.1)', color:'white', border:'none', padding:'0.8rem 1.5rem', borderRadius:'8px', cursor:'pointer', fontWeight:800}}>✕ Close Overlay</button>
+          </div>
+
+          <div style={{flex: 1, display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'2rem', overflowY:'auto', paddingBottom:'2rem'}}>
+            
+            {/* Document 1: Injunction */}
+            <div style={{background:'#e2e8f0', padding:'2rem', borderRadius:'4px', boxShadow:'0 25px 50px -12px rgba(0,0,0,0.5)', overflowY:'auto'}}>
+              <div style={{background:'white', minHeight:'100%', padding:'3rem', boxShadow:'0 10px 15px -3px rgba(0,0,0,0.1)', color:'black'}}>
+                {!compiledDocs ? (
+                   <div style={{display:'flex', flexDirection:'column', gap:'1rem', opacity:0.3, animation:'pulse 1.5s infinite'}}>
+                     <div style={{height:'30px', background:'#cbd5e1', width:'60%', borderRadius:'4px'}}/>
+                     <div style={{height:'15px', background:'#cbd5e1', width:'100%', borderRadius:'4px'}}/>
+                     <div style={{height:'15px', background:'#cbd5e1', width:'100%', borderRadius:'4px'}}/>
+                   </div>
+                ) : (
+                   <div contentEditable="true" suppressContentEditableWarning={true} style={{outline:'none', minHeight:'100%'}} dangerouslySetInnerHTML={{ __html: compiledDocs.injunction }} />
+                )}
+              </div>
+            </div>
+
+            {/* Document 2: Chronology */}
+            <div style={{background:'#e2e8f0', padding:'2rem', borderRadius:'4px', boxShadow:'0 25px 50px -12px rgba(0,0,0,0.5)', overflowY:'auto'}}>
+              <div style={{background:'white', minHeight:'100%', padding:'3rem', boxShadow:'0 10px 15px -3px rgba(0,0,0,0.1)', color:'black'}}>
+                {!compiledDocs ? (
+                   <div style={{display:'flex', flexDirection:'column', gap:'1rem', opacity:0.3, animation:'pulse 1.5s infinite', animationDelay:'0.3s'}}>
+                     <div style={{height:'30px', background:'#cbd5e1', width:'40%', borderRadius:'4px'}}/>
+                     <div style={{height:'15px', background:'#cbd5e1', width:'100%', borderRadius:'4px'}}/>
+                     <div style={{height:'15px', background:'#cbd5e1', width:'100%', borderRadius:'4px'}}/>
+                   </div>
+                ) : (
+                   <div contentEditable="true" suppressContentEditableWarning={true} style={{outline:'none', minHeight:'100%'}} dangerouslySetInnerHTML={{ __html: compiledDocs.chronology }} />
+                )}
+              </div>
+            </div>
+
+            {/* Document 3: Case Pack */}
+            <div style={{background:'#e2e8f0', padding:'2rem', borderRadius:'4px', boxShadow:'0 25px 50px -12px rgba(0,0,0,0.5)', overflowY:'auto'}}>
+              <div style={{background:'white', minHeight:'100%', padding:'3rem', boxShadow:'0 10px 15px -3px rgba(0,0,0,0.1)', color:'black'}}>
+                {!compiledDocs ? (
+                   <div style={{display:'flex', flexDirection:'column', gap:'1rem', opacity:0.3, animation:'pulse 1.5s infinite', animationDelay:'0.6s'}}>
+                     <div style={{height:'30px', background:'#cbd5e1', width:'80%', borderRadius:'4px'}}/>
+                     <div style={{height:'15px', background:'#cbd5e1', width:'100%', borderRadius:'4px'}}/>
+                     <div style={{height:'15px', background:'#cbd5e1', width:'100%', borderRadius:'4px'}}/>
+                     <div style={{height:'150px', background:'#cbd5e1', width:'100%', borderRadius:'4px'}}/>
+                   </div>
+                ) : (
+                   <div contentEditable="true" suppressContentEditableWarning={true} style={{outline:'none', minHeight:'100%'}} dangerouslySetInnerHTML={{ __html: compiledDocs.casePack }} />
+                )}
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* SINGLE-COLUMN OFFICIAL FORM MODAL */}
+      {showSingleFormModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+          background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)',
+          zIndex: 10000, display: 'flex', flexDirection: 'column', padding: '2rem'
+        }}>
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem', maxWidth: '800px', margin: '0 auto', width: '100%'}}>
+            <div>
+              <h2 style={{color:'white', margin:0, fontSize:'1.5rem'}}>{secureFormTitle}</h2>
+              {!secureFormHtml && <p style={{color:'#a7f3d0', margin:'0.5rem 0 0 0', fontWeight:600}} className="blink">Securely drafting ephemeral form with context...</p>}
+            </div>
+            <button onClick={() => setShowSingleFormModal(false)} style={{background:'rgba(255,255,255,0.1)', color:'white', border:'none', padding:'0.6rem 1.2rem', borderRadius:'8px', cursor:'pointer', fontWeight:800}}>✕ Destroy & Close</button>
+          </div>
+
+          <div style={{flex: 1, maxWidth: '800px', margin: '0 auto', width: '100%', display:'flex', flexDirection: 'column', overflowY:'auto', paddingBottom:'2rem'}}>
+            <div style={{background:'#e2e8f0', padding:'2rem', borderRadius:'4px', boxShadow:'0 25px 50px -12px rgba(0,0,0,0.5)', flex: 1}}>
+              <div style={{background:'white', minHeight:'100%', padding:'3rem', boxShadow:'0 10px 15px -3px rgba(0,0,0,0.1)', color:'black'}}>
+                {!secureFormHtml ? (
+                   <div style={{display:'flex', flexDirection:'column', gap:'1.5rem', opacity:0.3, animation:'pulse 1.5s infinite'}}>
+                     <div style={{height:'35px', background:'#cbd5e1', width:'60%', borderRadius:'4px'}}/>
+                     <div style={{height:'15px', background:'#cbd5e1', width:'100%', borderRadius:'4px'}}/>
+                     <div style={{height:'15px', background:'#cbd5e1', width:'100%', borderRadius:'4px'}}/>
+                     <div style={{height:'15px', background:'#cbd5e1', width:'80%', borderRadius:'4px'}}/>
+                     <div style={{height:'40px', background:'#cbd5e1', width:'100%', borderRadius:'4px', marginTop:'2rem'}}/>
+                     <div style={{height:'40px', background:'#cbd5e1', width:'100%', borderRadius:'4px'}}/>
+                   </div>
+                ) : (
+                   <div contentEditable="true" suppressContentEditableWarning={true} style={{outline:'none', minHeight:'100%'}} dangerouslySetInnerHTML={{ __html: secureFormHtml }} />
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast notifications for shelter availability */}
       <ToastContainer position="bottom-right" autoClose={5000} hideProgressBar={false} pauseOnHover theme="light" />
