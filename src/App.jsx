@@ -1,19 +1,22 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ZenPlantDecoy from './components/ZenPlantDecoy';
 import PathfinderDashboard from './components/PathfinderDashboard';
-import ChatlogExtraction from './components/ChatlogExtraction';
 import CaseProfile from './components/CaseProfile';
 import { useInactivityTimeout } from './hooks/useInactivityTimeout';
+import { useShelterData } from './hooks/useShelterData';
+import { useNotification } from './hooks/useNotification';
 
 function App() {
   const [unlocked, setUnlocked] = useState(false);
   const [page, setPage] = useState('main');
   const tapTimesRef = useRef([]);
+  
+  const { notification, triggerNotification } = useNotification();
+  const shelters = useShelterData(triggerNotification);
 
   // Inactivity timeout — auto-lock after 60s
   useInactivityTimeout(60000, () => {
     if (unlocked) {
-      // Auto-save before wiping
       try {
         const backup = {
           messages: localStorage.getItem('zoya_messages'),
@@ -32,12 +35,10 @@ function App() {
   const handlePanicTap = useCallback(() => {
     const now = Date.now();
     tapTimesRef.current.push(now);
-    // Keep only last 3 taps
     tapTimesRef.current = tapTimesRef.current.slice(-3);
     
     if (tapTimesRef.current.length === 3) {
       const timeDiff = tapTimesRef.current[2] - tapTimesRef.current[0];
-      // 3 taps within 800ms = panic
       if (timeDiff < 800 && unlocked) {
         setUnlocked(false);
         setPage('main');
@@ -71,13 +72,14 @@ function App() {
   return (
     <div onClick={handlePanicTap}>
       {!unlocked ? (
-        <ZenPlantDecoy onUnlock={() => setUnlocked(true)} />
+        <ZenPlantDecoy onUnlock={() => setUnlocked(true)} notification={notification} />
       ) : page === 'profile' ? (
         <CaseProfile onBack={() => setPage('main')} />
       ) : (
         <PathfinderDashboard 
           onOpenProfile={() => setPage('profile')}
           onLock={() => { setUnlocked(false); setPage('main'); }} 
+          shelters={shelters}
         />
       )}
     </div>
