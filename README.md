@@ -1,16 +1,41 @@
-# React + Vite
+# Zoya (卓雅) — The Zero-Footprint Legal Advocate 🛡️
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Zoya** is a high-agency, agentic AI platform designed specifically for domestic violence survivors in Hong Kong. It bridges the critical gap between raw evidence (chat logs, injury photos) and the formal requirements of the HK judicial system.
 
-Currently, two official plugins are available:
+## 🚀 Key Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Forensic Evidence Vault**: Multimodal ingestion of injury photos (via Vision AI) and WhatsApp chat exports (via NLP) to identify patterns of abuse.
+- **Statutory Chronology Extraction**: Automatically maps disorganized chat logs into a professional, court-ready **Statutory Chronology of Events**.
+- **Zero-Footprint Form Architect**: A trauma-informed, ephemeral document generation system. Forms like CSSA, Legal Aid, and Injunction Affidavits are drafted in-browser memory and never stored locally on the survivor's device.
+- **Sentinel Safety Layer**: High-agency safety features including a **Triple-Tap Panic Mode** (decoy UI), inactivity auto-purge, and encrypted local state.
+- **Real-Time Shelter Monitoring**: Live waitlist tracking for HK crisis centers (Harmony House, Serene Court, etc.) with decoy plant-bloom notifications.
 
-## React Compiler
+## 🛠️ Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Intelligence**: Google Gemini 2.5 Flash (via Vertex AI)
+- **Frontend**: React 19 + Vite (Vanilla CSS Serene Design System)
+- **Backend**: Node.js + Express
+- **Vision**: Vertex AI Vision for forensic image analysis
+- **Security**: 256-bit Encrypted LocalStorage + Ephemeral DOM Rendering
 
-## Expanding the ESLint configuration
+## 📦 Getting Started
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+1. **Install Dependencies**:
+   ```bash
+   npm install
+   ```
+
+2. **Configure Environment**:
+   Create a `.env` file with your Google Cloud Vertex AI credentials.
+
+3. **Run Locally**:
+   ```bash
+   npm start
+   ```
+   (Launches both the Vite frontend and the Node.js backend concurrently).
+
+## 🔒 Privacy & Safety
+Zoya is built on the principle of **Trauma-Informed Security**. No sensitive legal data is ever persisted to a centralized server. All forensic analysis happens in ephemeral sessions, and the application can be instantly cloaked as a benign "Zen Plant" or "Calculator" decoy through panic triggers.
+
+---
+*Built for the GDG Hackathon 2026 — Advancing Agentic Advocacy for Survivors.*
