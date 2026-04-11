@@ -54,7 +54,7 @@ export default function CaseProfile({ onBack }) {
   const filled = allFields.filter(f => data[f.key] && data[f.key] !== 'Establishing...').length;
 
   return (
-    <div style={{minHeight:'100vh', background:'#f8fafc', fontFamily:'Inter, sans-serif'}}>
+    <div style={{height:'100vh', background:'#f8fafc', fontFamily:'Inter, sans-serif', overflowY:'auto'}}>
       <header style={{padding:'1rem 2rem', background:'white', borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, zIndex:10}}>
         <div>
           <h1 style={{margin:0, fontSize:'1.1rem', fontWeight:800, color:'#1e293b', fontFamily:'Outfit, sans-serif'}}>My Profile</h1>

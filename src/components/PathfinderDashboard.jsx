@@ -982,7 +982,7 @@ export default function PathfinderDashboard({ onOpenChatlogExtraction, onOpenPro
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem'}}>
             <div>
               <h2 style={{color:'white', margin:0, fontSize:'1.8rem'}}>Massive AI Case Generation</h2>
-              {vaultAnalyzing && <p style={{color:'#a7f3d0', margin:'0.5rem 0 0 0', fontWeight:600}} className="blink">Writing documents live using Gemini 2.5 Flash...</p>}
+              {vaultAnalyzing && <p style={{color:'#a7f3d0', margin:'0.5rem 0 0 0', fontWeight:600}} className="blink">Zoya AI is working...</p>}
             </div>
             <button onClick={() => setShowDocsModal(false)} style={{background:'rgba(255,255,255,0.1)', color:'white', border:'none', padding:'0.8rem 1.5rem', borderRadius:'8px', cursor:'pointer', fontWeight:800}}>✕ Close Overlay</button>
           </div>
